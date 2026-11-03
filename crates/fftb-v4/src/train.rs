@@ -114,7 +114,16 @@ pub fn run(cfg: &TrainConfig) -> anyhow::Result<TrainReport> {
     anyhow::ensure!(cache_dir.is_dir(), "cache directory {} not found", cache_dir.display());
 
     println!("building dataset from {} ...", cache_dir.display());
-    let built = build_dataset(&cache_dir);
+    let built = if cfg.deep {
+        // Gate-comparable: the dedup'd union of both caches (main copies
+        // win duplicates), matching fftb-forecast's corpus arithmetic.
+        crate::dataset::build_dataset_union(
+            &cfg.data_dir.join("tournamentCache"),
+            &cfg.data_dir.join("tournamentCacheDeep"),
+        )
+    } else {
+        build_dataset(&cache_dir)
+    };
     anyhow::ensure!(!built.set.is_empty(), "no matches parsed from {}", cache_dir.display());
     println!(
         "matches: {} (skipped tournaments: {})",

@@ -6,8 +6,12 @@
 param(
     [double]$Hours = 6,
     [int]$Population = 0,          # 0 = auto-size to free memory (fraction 0.7)
-    [string]$Dataset = "deep"      # deep = full history (gate-comparable)
+    [string]$Dataset = "deep",     # deep = dedup'd dual-cache union (gate-comparable)
+    [int]$Threads = 0              # 0 = all cores; N = cap rayon (good-citizen
+                                   # mode when another family run saturates)
 )
+
+if ($Threads -gt 0) { $env:RAYON_NUM_THREADS = "$Threads" }
 
 $ts = Get-Date -Format "yyyyMMdd-HHmm"
 $outDir = "data\runs\$Dataset-$ts"

@@ -164,3 +164,56 @@ pub struct DatasetResult {
     pub set: MatchSetLite,
     pub skipped: HashMap<String, String>,
 }
+
+/// Build the gate-comparable corpus: the UNION of both caches, deduplicated
+/// by tournament id (main-cache copy preferred — bet-covered and richer),
+/// chronologically ordered. Mirrors fftb-forecast's dual-cache arithmetic
+/// (553,450 matches from 69,207 unique tournaments, Nov 4 2026 reference).
+pub fn build_dataset_union(main_dir: &std::path::Path, deep_dir: &std::path::Path) -> DatasetResult {
+    let mut by_id: std::collections::BTreeMap<i64, Vec<MatchLite>> = std::collections::BTreeMap::new();
+    let mut skipped: HashMap<String, String> = HashMap::new();
+    // Main cache first so its copies win the dedup; deep fills the gaps.
+    for dir in [main_dir, deep_dir] {
+        let mut paths: Vec<std::path::PathBuf> = match std::fs::read_dir(dir) {
+            Ok(files) => files
+                .flatten()
+                .map(|f| f.path())
+                .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("gz"))
+                .collect(),
+            Err(e) => {
+                skipped.insert(dir.display().to_string(), format!("unreadable: {e}"));
+                continue;
+            }
+        };
+        paths.sort();
+        for path in paths {
+            let entry = match crate::cache::MatchCacheEntry::read(&path) {
+                Ok(entry) => entry,
+                Err(e) => {
+                    skipped
+                        .entry(path.file_stem().unwrap_or_default().to_string_lossy().into())
+                        .or_insert_with(|| format!("parse error: {e}"));
+                    continue;
+                }
+            };
+            match matches_from_entry(&entry) {
+                Ok(matches) => {
+                    by_id.entry(entry.tournament_id).or_insert(matches);
+                }
+                Err(e) => {
+                    skipped
+                        .entry(entry.tournament_id.to_string())
+                        .or_insert_with(|| e.to_string());
+                }
+            }
+        }
+    }
+    let mut set = MatchSetLite::default();
+    for (_, matches) in by_id {
+        set.matches.extend(matches);
+    }
+    DatasetResult {
+        set: set.sorted_chronologically(),
+        skipped,
+    }
+}
