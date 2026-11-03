@@ -10,3 +10,6 @@ pub mod features;
 pub mod fitness;
 pub mod maps;
 pub mod seam;
+/// Shared synthetic shape for the GA engine spike (examples/). Moves out
+/// when the engine is picked.
+pub mod spike;
