@@ -1,0 +1,6 @@
+# FFTB Gene Trainer V4 configuration.
+# data_dir points at the shared V3 data root (tournament caches live there);
+# V4 treats it as read-only. V4's own outputs go in ./data (gitignored).
+data_dir = "../gene-trainer-3/data"
+maps_url = "https://www.fftbattleground.com/fftbg/Maps.txt"
+maps_cache = "data/Maps.txt"

@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["crates/fftb-v4"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+# Mirrors gene-trainer-3's release profile (lto=thin, codegen-units=1) —
+# family doctrine, agreed Nov 1 2026.
+[profile.release]
+lto = "thin"
+codegen-units = 1
