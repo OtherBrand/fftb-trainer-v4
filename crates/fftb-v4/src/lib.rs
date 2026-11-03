@@ -4,6 +4,7 @@
 //! the architecture doctrine and phase plan.
 
 pub mod cache;
+pub mod calibration;
 pub mod config;
 pub mod conformance;
 pub mod dataset;
@@ -12,6 +13,7 @@ pub mod features;
 pub mod fitness;
 pub mod maps;
 pub mod seam;
+pub mod train;
 /// Shared synthetic shape for the GA engine spike (examples/). Moves out
 /// when the engine is picked.
 pub mod spike;

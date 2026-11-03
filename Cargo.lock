@@ -297,14 +297,49 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
+name = "fftb-core"
+version = "0.1.0"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=a294229#a29422939cc47a0c34d4565e21f0e91bdf5af30b"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "fftb-ga"
+version = "0.1.0"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=a294229#a29422939cc47a0c34d4565e21f0e91bdf5af30b"
+dependencies = [
+ "fftb-core",
+ "fftb-sim",
+ "rand 0.9.5",
+ "rand_chacha",
+ "rayon",
+ "tracing",
+]
+
+[[package]]
+name = "fftb-sim"
+version = "0.1.0"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=a294229#a29422939cc47a0c34d4565e21f0e91bdf5af30b"
+dependencies = [
+ "fftb-core",
+]
+
+[[package]]
 name = "fftb-v4"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "fftb-core",
+ "fftb-ga",
  "flate2",
  "genetic_algorithms",
  "radiate",
+ "rand_chacha",
  "rayon",
  "serde",
  "serde_json",

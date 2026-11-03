@@ -100,13 +100,20 @@ V4 uses a library engine, not a hand-rolled hot core.)
   libraries measured 32–49× slow (machinery-bound, fitness-independent);
   engine arrives with the shared-repo cut, fitness stays engine-agnostic
   until then.
-- Phase 1: cache reader + dataset builder + feature extraction + train CLI.
+- Phase 1: **DONE** — train CLI live; engine = fftb-ga from the shared repo
+  (git-pinned to the local checkout at a294229 until the GitHub push
+  confirms; then the URL at the same rev). Split discipline mirrors
+  fftb-forecast (newest 20% holdout, temperature on newest 10% of train).
+  Smoke: 814 gens / 90s at pop 2k; market baseline sanity-checks against
+  deep-linear's reference. First real run: ~2:30 AM Nov 5 2026, detached
+  via start-trainer-v4.ps1 (deep dataset, 6h, seed 42, auto pop).
   Winner files: NO local writer — the sectioned winner-file format is family
   Tier-1 infrastructure living in the shared repo; V4 proposes its section
   kind as a cross-reviewed PR when the repo lands (cheap while V4 has zero
-  artifacts in the wild). The advisor WinProbModel export (Phase 2) is a
-  separate contract and proceeds independently.
-- Phase 2: calibration + WinProbModel export + holdout gate vs deep-linear.
+  artifacts in the wild). The advisor WinProbModel export landed WITH
+  Phase 1 — calibration + artifact + gate numbers ship with every run.
+- Phase 2: (folded into Phase 1 runs) holdout gate vs deep-linear and vs
+  the market baseline, reported per run.
 - Phase 3: botland via the shared repo (swap `seam.rs`) + roster entry.
 - Phase 4 (optional): GA-selected pair features (`attr:A×attr:B` — the one
   accuracy path where evolution beats gradient; must beat both deep-linear

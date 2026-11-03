@@ -22,8 +22,6 @@ struct Cli {
 enum Command {
     /// Fetch Maps.txt (live-first, local fallback) and report what we got.
     Maps,
-    /// Train a genome (Phase 1: dataset builder + GA engine).
-    Train,
     /// Inspect an artifact file (Phase 1).
     Inspect { path: PathBuf },
     /// Run the fixture conformance suite (shared botland repo fixtures).
@@ -37,6 +35,30 @@ enum Command {
         /// Use the deep cache (tournamentCacheDeep) instead.
         #[arg(long)]
         deep: bool,
+    },
+    /// Train a genome and export the advisor artifact.
+    Train {
+        /// Hours to run (default 6).
+        #[arg(long)]
+        hours: Option<f64>,
+        /// Population size; 0 = auto-size to available memory.
+        #[arg(long, default_value_t = 0)]
+        population: usize,
+        /// Deterministic seed.
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+        /// Dataset: deep (full history, gate-comparable) or main.
+        #[arg(long, default_value = "deep")]
+        dataset: String,
+        /// Fitness: margin (V1-faithful), accuracy, or logloss.
+        #[arg(long, default_value = "margin")]
+        fitness: String,
+        /// Memory fraction for auto population sizing.
+        #[arg(long, default_value_t = 0.7)]
+        memory_fraction: f64,
+        /// Output directory (default data/runs/<unix-time>).
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
     },
 }
 
@@ -63,7 +85,6 @@ fn main() -> anyhow::Result<()> {
             }
             Ok(())
         }
-        Command::Train => anyhow::bail!("train: not implemented yet (Phase 1 — dataset builder + GA engine)"),
         Command::Inspect { path } => {
             anyhow::bail!("inspect {}: not implemented yet (Phase 1)", path.display())
         }
@@ -112,6 +133,41 @@ fn main() -> anyhow::Result<()> {
             for (id, reason) in result.skipped.iter().take(5) {
                 println!("  skipped {id}: {reason}");
             }
+            Ok(())
+        }
+        Command::Train {
+            hours,
+            population,
+            seed,
+            dataset,
+            fitness,
+            memory_fraction,
+            out,
+        } => {
+            let fitness = match fitness.as_str() {
+                "margin" => fftb_v4::train::FitnessKind::Margin,
+                "accuracy" => fftb_v4::train::FitnessKind::Accuracy,
+                "logloss" => fftb_v4::train::FitnessKind::LogLoss,
+                other => anyhow::bail!("unknown fitness {other}"),
+            };
+            let out_dir = out.unwrap_or_else(|| {
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                std::path::PathBuf::from(format!("data/runs/{ts}"))
+            });
+            let cfg = fftb_v4::train::TrainConfig {
+                hours: hours.unwrap_or(6.0),
+                population,
+                seed,
+                deep: dataset == "deep",
+                fitness,
+                memory_fraction,
+                out_dir,
+                data_dir: config.data_dir.clone(),
+            };
+            fftb_v4::train::run(&cfg)?;
             Ok(())
         }
     }
