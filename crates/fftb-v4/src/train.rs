@@ -42,6 +42,10 @@ pub struct TrainConfig {
     pub memory_fraction: f64,
     pub out_dir: PathBuf,
     pub data_dir: PathBuf,
+    /// Formally-identical-corpus gate: drop matches newer than this
+    /// tournament id (V3's training snapshot boundary = 1793681777895;
+    /// their +622 backfill sits past it). 0 = no truncation.
+    pub max_tournament_id: i64,
 }
 
 /// The V4 evaluator: V1's asymmetric margin fitness (or alternates) over
@@ -131,7 +135,21 @@ pub fn run(cfg: &TrainConfig) -> anyhow::Result<TrainReport> {
         built.skipped.len()
     );
 
-    let set = TrainingSet::from_matches(&built.set);
+    let mut matches = built.set;
+    if cfg.max_tournament_id > 0 {
+        let before = matches.len();
+        matches
+            .matches
+            .retain(|m| (m.tournament_id as i64) <= cfg.max_tournament_id);
+        println!(
+            "snapshot truncation at tournament {}: {} -> {} matches",
+            cfg.max_tournament_id,
+            before,
+            matches.len()
+        );
+    }
+
+    let set = TrainingSet::from_matches(&matches);
     let total = set.len();
     let holdout_len = ((total as f32 * HOLDOUT_FRACTION) as usize).max(1);
     let train_end = total - holdout_len;

@@ -59,6 +59,9 @@ enum Command {
         /// Output directory (default data/runs/<unix-time>).
         #[arg(long)]
         out: Option<std::path::PathBuf>,
+        /// Truncate corpus at this tournament id (V3 snapshot gate: 1793681777895).
+        #[arg(long, default_value_t = 0)]
+        max_tournament: i64,
     },
 }
 
@@ -143,6 +146,7 @@ fn main() -> anyhow::Result<()> {
             fitness,
             memory_fraction,
             out,
+            max_tournament,
         } => {
             let fitness = match fitness.as_str() {
                 "margin" => fftb_v4::train::FitnessKind::Margin,
@@ -166,6 +170,7 @@ fn main() -> anyhow::Result<()> {
                 memory_fraction,
                 out_dir,
                 data_dir: config.data_dir.clone(),
+                max_tournament_id: max_tournament,
             };
             fftb_v4::train::run(&cfg)?;
             Ok(())
