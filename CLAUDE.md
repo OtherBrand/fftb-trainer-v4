@@ -67,6 +67,14 @@ Run all commands from the repo root (family doctrine: data resolves against cwd)
    trainer's session before merge. The gene-trainer-2 session owns the parity
    fixtures and conformance tests; this session holds consumer-with-standing
    commit rights.
+8. **Sets-vs-multiplicity adjudication (open family Tier 1 item, Nov 3
+   2026).** The trainer lineage (V3 + V4 + the golden) uses team-level SET
+   semantics (±1 presence); the Java Viewer's scorer uses per-unit
+   multiplicity. A parity harness on the V3 side quantifies before any
+   family decision. V4 is adjudication-proof by construction:
+   `attribute_names` preserves raw multiplicity at parse; semantics live
+   only in `features.rs` extract() (set-diff → count-diff is a one-function
+   change); the hardened golden (per-side token counts) flags any flip.
 
 ## Code style (owner preference, family-wide)
 
