@@ -41,12 +41,18 @@ Run all commands from the repo root (family doctrine: data resolves against cwd)
    (correct → +winner score; wrong → −5× loser score;
    `fitness.rs: NEGATIVE_SCORE_MULTIPLIER`), verified against V1's Java
    source. Alternates (`accuracy`, `logloss`) ship behind flags.
-5. **GA engine: off-the-shelf library** (owner's explicit choice over bespoke
-   SoA — memory is not the constraint in Rust). Candidates vetted Nov 1:
-   `genetic_algorithms` 3.0.0 and `radiate` 1.3.2; spike before committing
-   (ergonomics at 20k pop, genomes/s at 500k+). Population ambitions stay
-   ≤~500k on a library (boxed per-genome storage hits the memory-bandwidth
-   wall beyond that; accepted trade).
+5. **GA engine: fftb-ga from the shared fftb-trainer-botland repo** (owner
+   decision Nov 3, after the spike). The off-the-shelf premise ("Rust saves
+   memory so a normal library suffices") did not survive measurement: on our
+   shape (1,000-gene real-coded genomes) genetic_algorithms 3.0.0 and
+   radiate 1.3.2 both run at 3.3–5.2k genomes/s vs fftb-ga's 165k — a
+   32–49× machinery wall (per-gene struct ops in selection/crossover/
+   mutation), proven fitness-independent by the trivial-fitness control.
+   Evidence + regression harnesses: examples/bench_ga_lib (modes per/
+   trivial/batch), bench_radiate, bench_kernel (commit 20b0248). Until the
+   shared-repo cut lands, V4's fitness interface stays a pure function
+   (`fitness.rs`) so the engine swap is mechanical. Engine governance:
+   determinism gate — same seed + data + rev = same winner file, always.
 6. **Advisor export.** Calibrated WinProbModel JSON (linear, name-keyed,
    weights sorted, temperature pre-folded) = zero Viewer changes on swap.
    The gate: V4 claims the advisor slot only by beating deep-linear's
@@ -80,6 +86,10 @@ V4 uses a library engine, not a hand-rolled hot core.)
 ## Phase status
 
 - Phase 0 (scaffold + Maps.txt live fetch): **done, pushed**.
+- Phase 0.5 (GA engine spike): **done, verdict: fftb-ga shared** — off-the-shelf
+  libraries measured 32–49× slow (machinery-bound, fitness-independent);
+  engine arrives with the shared-repo cut, fitness stays engine-agnostic
+  until then.
 - Phase 1: cache reader + dataset builder + feature extraction + GA engine
   (after the spike) + incremental winner files + train CLI.
 - Phase 2: calibration + WinProbModel export + holdout gate vs deep-linear.
