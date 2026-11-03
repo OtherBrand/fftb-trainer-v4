@@ -66,9 +66,20 @@ Organize code class-like: one type per concern, `impl` blocks with `new()`
 constructors, traits as interfaces. (V3's SoA exception does NOT apply here —
 V4 uses a library engine, not a hand-rolled hot core.)
 
+## Operational notes
+
+- **Windows Application Control (error 4551)** blocks freshly-built DLLs/test
+  binaries intermittently (family-known). Fixes that worked here: for the
+  `zerofrom`/`zerofrom-derive` proc-macro (pulled via `ureq → url → idna →
+  ICU4X`), `cargo clean -p zerofrom-derive` then rebuild; for a blocked test
+  binary, `touch crates/fftb-v4/src/lib.rs` and rerun. Flaky, not fatal.
+- First live Maps.txt fetch (Nov 2 2026): **128 maps** — the dump has grown
+  past V1-era 117, which is the staleness problem the live-first policy
+  exists to fix.
+
 ## Phase status
 
-- Phase 0 (scaffold + Maps.txt live fetch): **done** (this commit).
+- Phase 0 (scaffold + Maps.txt live fetch): **done, pushed**.
 - Phase 1: cache reader + dataset builder + feature extraction + GA engine
   (after the spike) + incremental winner files + train CLI.
 - Phase 2: calibration + WinProbModel export + holdout gate vs deep-linear.
