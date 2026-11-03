@@ -6,7 +6,9 @@ The workhorse that made positive gil on stream, rebuilt with oomph.
 - V3 (Rust, gil-economics GA): `C:\Projects\gene-trainer-3` — github.com/OtherBrand/fftb-trainer-v3
 - V2 (Java, frozen Oct 17 2026): `C:\Projects\gene-trainer-2\FFTB-Gene-Trainer-2\Gene-Trainer-V2`
 - V1 (Java, original): `C:\Projects\gene-trainer`
-- Shared botland sim core: github.com/OtherBrand/fftb-trainer-botland (extraction in progress; initial cut pinned at gene-trainer-3 `7b10221^`)
+- Shared botland sim core: github.com/OtherBrand/fftb-trainer-botland — cut Nov 3
+  from gene-trainer-3 baseline `ef3325c` (pre-archetype; the earlier `7b10221^`
+  reference still contained the archetype commit), local head `6eb330a`
 - Viewer (consumes advisor artifacts + fields botland bots): `C:\Projects\FFTBViewer`
 
 ## Quick start
@@ -90,8 +92,12 @@ V4 uses a library engine, not a hand-rolled hot core.)
   libraries measured 32–49× slow (machinery-bound, fitness-independent);
   engine arrives with the shared-repo cut, fitness stays engine-agnostic
   until then.
-- Phase 1: cache reader + dataset builder + feature extraction + GA engine
-  (after the spike) + incremental winner files + train CLI.
+- Phase 1: cache reader + dataset builder + feature extraction + train CLI.
+  Winner files: NO local writer — the sectioned winner-file format is family
+  Tier-1 infrastructure living in the shared repo; V4 proposes its section
+  kind as a cross-reviewed PR when the repo lands (cheap while V4 has zero
+  artifacts in the wild). The advisor WinProbModel export (Phase 2) is a
+  separate contract and proceeds independently.
 - Phase 2: calibration + WinProbModel export + holdout gate vs deep-linear.
 - Phase 3: botland via the shared repo (swap `seam.rs`) + roster entry.
 - Phase 4 (optional): GA-selected pair features (`attr:A×attr:B` — the one

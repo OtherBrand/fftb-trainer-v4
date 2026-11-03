@@ -1,6 +1,7 @@
 //! The thin seam: local stand-ins for the shared botland repo's types
-//! (github.com/OtherBrand/fftb-trainer-botland, extraction in progress on
-//! the V3 side, initial cut pinned at gene-trainer-3 commit 7b10221^).
+//! (github.com/OtherBrand/fftb-trainer-botland, cut Nov 3 from gene-trainer-3
+//! baseline ef3325c — pre-archetype; local head 6eb330a, push pending owner
+//! confirmation).
 //!
 //! These exist so V4 builds with ZERO gene-trainer-3 crate deps today. When
 //! the shared repo lands, this module is deleted and the shared crate's
