@@ -13,9 +13,12 @@
 /// since V3: "names are canonical, ids are per-run").
 #[derive(Debug, Clone, Default)]
 pub struct TeamSideLite {
+    /// Raw per-unit token list (unitGeneAbilityElements concatenated) —
+    /// multiplicity preserved; set semantics applied at feature extraction.
     pub attribute_names: Vec<String>,
     pub braves: Vec<i16>,
     pub faiths: Vec<i16>,
+    pub raid_boss_count: u32,
 }
 
 /// One match in the shape V4's scorer needs. Deliberately WITHOUT bet/pot
@@ -69,6 +72,7 @@ mod tests {
     fn side() -> TeamSideLite {
         TeamSideLite::default()
     }
+
 
     #[test]
     fn sorts_by_tournament_then_match_number() {

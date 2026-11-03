@@ -3,7 +3,9 @@
 //! 2026): NO gene-trainer-3 crate dependencies. See the repo's CLAUDE.md for
 //! the architecture doctrine and phase plan.
 
+pub mod cache;
 pub mod config;
+pub mod conformance;
 pub mod dataset;
 pub mod export;
 pub mod features;

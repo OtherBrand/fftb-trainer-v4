@@ -1,42 +1,166 @@
-//! Tournament cache reading + dataset building — V4's own reimplementation
-//! (owner decision Nov 1 2026: each trainer parses what it cares about).
+//! Dataset building: cache entries → V4's match set. The bracket, color,
+//! and era rules are pinned by the shared fixtures (empirically derived
+//! against feature-rows.json, Nov 3 2026):
 //!
-//! Phase 1 scope:
-//! - Read the V2-compatible gzip cache — `<data_dir>/tournamentCache/<id>.gz`
-//!   and `<data_dir>/tournamentCacheDeep/` — with V4's own serde structs,
-//!   pinned against FORMAT FIXTURES from the shared botland repo, never
-//!   against another trainer's structs. The cross-family contract is the
-//!   file format, not anyone's types.
-//! - Keep: compositions (abilities/items/classes), braves/faiths, map,
-//!   winner, colors; odds ONLY as the market baseline.
-//! - Ignore entirely: bet records, pots, bettor analytics (V4's accuracy
-//!   fitness never touches them — this is why bet-less deep-scan eras are
-//!   natively usable here).
-//! - Quirks-ledger fixes baked in, not inherited: Kikuichimonji spelling,
-//!   `-Item` suffix handling, lowercase player names, robust Maps.txt lines.
-//! - V4's own structural validity filters, skip-listable with reasons.
-//!
-//! Era-shape discoveries from the golden fixtures (gene-trainer-2-47,
-//! fixtures @ bd28a4d+3f13117, Nov 2 2026):
-//! - THREE cache era-shapes, not two: 2020 bet-less; latest bet-covered;
-//!   and deep-era entries with `Pots:8` (API odds present) alongside
-//!   `botBetData:[]` (no viewer rows). Pots and rows are INDEPENDENT
-//!   presence — never assume they pair (latest-deep.gz is the trap
-//!   fixture). For V4 this is favorable: odds-as-market-baseline exists on
-//!   matches without viewer coverage.
-//! - True V1 winner shape = winner-1000.txt (flat scalar map: Enabled flags
-//!   + 8 config scalars + name→value genes, no sections). The 2022
-//!   GeneFiles winners are V2-format despite their era.
-//! Conformance rule: parse every fixture; round-trip cache entries
-//! byte-identically.
+//! - Bracket: m0 Red/Blue, m1 Green/Yellow, m2 White/Black, m3 Purple/
+//!   Brown; m4 = w0/w1, m5 = w2/w3, m6 = w4/w5 (wK = winners[K] color);
+//!   m7 = w6/Champion — the final's right side is the literal `champion`
+//!   team entry, and `winners[7]` is the literal string "champion".
+//! - Winner of match m = `winners[m]` (lowercase color key, or the
+//!   champion literal for m7).
+//! - Structural validity: 8 winners, 8 maps, all 9 teams present; pots and
+//!   viewer rows are independent presence (empty-never-partial).
 
-use crate::seam::MatchSetLite;
+use std::collections::HashMap;
 
-/// Build the training dataset from the shared cache directories. Phase 1.
-pub fn build_dataset(
-    _cache_dir: &std::path::Path,
-    _deep_cache_dir: &std::path::Path,
-    _maps: &crate::maps::MapBook,
-) -> anyhow::Result<MatchSetLite> {
-    anyhow::bail!("dataset builder not implemented yet (Phase 1)")
+use crate::cache::MatchCacheEntry;
+use crate::seam::{MatchLite, MatchSetLite, TeamSideLite};
+
+/// Fixed first-round pairings, (left, right) as API color keys.
+pub const FIRST_ROUND: [(&str, &str); 4] =
+    [("red", "blue"), ("green", "yellow"), ("white", "black"), ("purple", "brown")];
+
+/// Proper-case gene names (fftb-core TeamColor::gene_name — the advisor
+/// contract's `side:<Color>` spelling).
+pub fn proper_color(api_key: &str) -> Option<&'static str> {
+    Some(match api_key.trim_start_matches('!').to_ascii_lowercase().as_str() {
+        "red" => "Red",
+        "blue" => "Blue",
+        "green" => "Green",
+        "yellow" => "Yellow",
+        "white" => "White",
+        "black" => "Black",
+        "brown" => "Brown",
+        "purple" => "Purple",
+        "champion" => "Champion",
+        _ => return None,
+    })
+}
+
+/// Resolve the (left, right) API color keys for all 8 matches from the
+/// winners array (winners[7] is the "champion" literal).
+fn bracket_sides(winners: &[String]) -> anyhow::Result<Vec<(String, String)>> {
+    if winners.len() != 8 {
+        anyhow::bail!("expected 8 winners, found {}", winners.len());
+    }
+    let mut sides = Vec::with_capacity(8);
+    for (left, right) in FIRST_ROUND {
+        sides.push((left.to_string(), right.to_string()));
+    }
+    for i in 0..3 {
+        sides.push((winners[2 * i].clone(), winners[2 * i + 1].clone()));
+    }
+    sides.push((winners[6].clone(), "champion".to_string()));
+    Ok(sides)
+}
+
+fn team_side(entry: &MatchCacheEntry, color: &str) -> anyhow::Result<TeamSideLite> {
+    let team = entry
+        .tournament
+        .teams
+        .get(color)
+        .ok_or_else(|| anyhow::anyhow!("team '{}' missing from entry", color))?;
+    let mut side = TeamSideLite::default();
+    for unit in &team.units {
+        side.attribute_names
+            .extend(unit.unit_gene_ability_elements.iter().cloned());
+        side.braves.push(unit.brave);
+        side.faiths.push(unit.faith);
+        side.raid_boss_count += unit.raid_boss as u32;
+    }
+    Ok(side)
+}
+
+/// Build one tournament's 8 matches from a cache entry.
+pub fn matches_from_entry(entry: &MatchCacheEntry) -> anyhow::Result<Vec<MatchLite>> {
+    let t = &entry.tournament;
+    if t.winners.len() != 8 {
+        anyhow::bail!("tournament {}: {} winners", entry.tournament_id, t.winners.len());
+    }
+    if t.maps.len() != 8 {
+        anyhow::bail!("tournament {}: {} maps", entry.tournament_id, t.maps.len());
+    }
+    if t.teams.len() != 9 {
+        anyhow::bail!("tournament {}: {} teams", entry.tournament_id, t.teams.len());
+    }
+
+    let sides = bracket_sides(&t.winners)?;
+    let mut matches = Vec::with_capacity(8);
+    for (m, (left_key, right_key)) in sides.iter().enumerate() {
+        let left = team_side(entry, left_key)?;
+        let right = team_side(entry, right_key)?;
+        let map_number = t.maps[m]
+            .split_once(')')
+            .and_then(|(n, _)| n.trim().parse::<u16>().ok())
+            .ok_or_else(|| anyhow::anyhow!("tournament {}: malformed map {:?}", entry.tournament_id, t.maps[m]))?;
+        let winner_key = t.winners[m].to_ascii_lowercase();
+        let winner_is_left = winner_key == left_key.to_ascii_lowercase();
+        let odds_left = t
+            .pots
+            .get(m)
+            .and_then(|pot| pot.left.odds)
+            .map(|o| o as f32);
+        matches.push(MatchLite {
+            tournament_id: entry.tournament_id as u64,
+            match_number: m as u32,
+            left,
+            right,
+            left_color: proper_color(left_key)
+                .ok_or_else(|| anyhow::anyhow!("unknown left color {}", left_key))?
+                .to_string(),
+            right_color: proper_color(right_key)
+                .ok_or_else(|| anyhow::anyhow!("unknown right color {}", right_key))?
+                .to_string(),
+            map_number,
+            winner_is_left,
+            odds_left,
+        });
+    }
+    Ok(matches)
+}
+
+/// Build a dataset from every readable .gz entry in a cache directory,
+/// skip-listing structurally invalid tournaments with their reasons
+/// (V1 crashed on these; V4 reports them).
+pub fn build_dataset(cache_dir: &std::path::Path) -> DatasetResult {
+    let mut set = MatchSetLite::default();
+    let mut skipped: HashMap<String, String> = HashMap::new();
+    let mut entries = Vec::new();
+    if let Ok(files) = std::fs::read_dir(cache_dir) {
+        for file in files.flatten() {
+            let path = file.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("gz") {
+                entries.push(path);
+            }
+        }
+    }
+    entries.sort();
+    for path in entries {
+        match MatchCacheEntry::read(&path) {
+            Ok(entry) => match matches_from_entry(&entry) {
+                Ok(mut matches) => set.matches.append(&mut matches),
+                Err(e) => {
+                    skipped.insert(
+                        path.file_stem().unwrap_or_default().to_string_lossy().into(),
+                        e.to_string(),
+                    );
+                }
+            },
+            Err(e) => {
+                skipped.insert(
+                    path.file_stem().unwrap_or_default().to_string_lossy().into(),
+                    format!("parse error: {e}"),
+                );
+            }
+        }
+    }
+    DatasetResult {
+        set: set.sorted_chronologically(),
+        skipped,
+    }
+}
+
+pub struct DatasetResult {
+    pub set: MatchSetLite,
+    pub skipped: HashMap<String, String>,
 }
