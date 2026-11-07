@@ -21,6 +21,7 @@ ureq = "2"
 fftb-core = { git = "file:///C:/Projects/fftb-trainer-botland", rev = "a294229" }
 fftb-ga = { git = "file:///C:/Projects/fftb-trainer-botland", rev = "a294229" }
 rand_chacha = "0.9"
+rand = "0.9"
 
 # GA engine spike (Phase 0.5) — both candidates as dev-deps until the pick.
 [dev-dependencies]

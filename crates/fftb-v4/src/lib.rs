@@ -12,6 +12,7 @@ pub mod export;
 pub mod features;
 pub mod fitness;
 pub mod maps;
+pub mod seed;
 pub mod seam;
 pub mod train;
 /// Shared synthetic shape for the GA engine spike (examples/). Moves out

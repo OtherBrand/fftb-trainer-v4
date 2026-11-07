@@ -14,6 +14,7 @@ use fftb_core::genome::{BetBounds, Genome};
 use fftb_ga::engine::{self, EngineConfig};
 use fftb_ga::evaluator::Evaluator;
 use fftb_ga::population::{population_for_memory, Population};
+use rand::Rng;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
@@ -46,6 +47,19 @@ pub struct TrainConfig {
     /// tournament id (V3's training snapshot boundary = 1793681777895;
     /// their +622 backfill sits past it). 0 = no truncation.
     pub max_tournament_id: i64,
+    /// Warm-start seed files (V1 winner files and/or WinProbModel JSONs;
+    /// format auto-detected). Genome 0..n = one exact copy each; a band of
+    /// perturbed variants follows; the rest stays random.
+    pub seeds: Vec<std::path::PathBuf>,
+}
+
+fn detect_and_load_seed(path: &std::path::Path) -> anyhow::Result<crate::seed::SeedSource> {
+    let text = std::fs::read_to_string(path)?;
+    if text.contains("\"geneticAttributes\"") {
+        crate::seed::load_v1_winner(path)
+    } else {
+        crate::seed::load_winprob(path, 50.0)
+    }
 }
 
 /// The V4 evaluator: V1's asymmetric margin fitness (or alternates) over
@@ -190,6 +204,43 @@ pub fn run(cfg: &TrainConfig) -> anyhow::Result<TrainReport> {
 
     let mut rng = ChaCha8Rng::seed_from_u64(cfg.seed);
     let mut population = Population::random(pop_size, &genome, &mut rng);
+
+    // Warm-start: exact copies first, then a perturbed band (10% of the
+    // population, split evenly across sources), rest random.
+    let mut seed_sources = Vec::new();
+    for path in &cfg.seeds {
+        match detect_and_load_seed(path) {
+            Ok(source) => seed_sources.push(source),
+            Err(e) => anyhow::bail!("seed file {}: {e}", path.display()),
+        }
+    }
+    if !seed_sources.is_empty() {
+        for (s, source) in seed_sources.iter().enumerate() {
+            let (matched, clamped, unmatched) =
+                population.seed_genome_by_name(s, &source.values, &genome);
+            println!(
+                "seed[{}] {} -> genome {s}: {matched} matched, {clamped} clamped, {unmatched} unmatched",
+                cfg.seeds[s].display(),
+                source.label
+            );
+        }
+        let variants = (pop_size / 10).saturating_sub(seed_sources.len());
+        for k in 0..variants {
+            let target = seed_sources.len() + k;
+            let source = &seed_sources[k % seed_sources.len()];
+            population.seed_genome_by_name(target, &source.values, &genome);
+            {
+                let genes = population.genome_mut(target);
+                for g in genes.iter_mut() {
+                    // Triangular jitter (sum of two centered uniforms),
+                    // scaled to ±75 — perturbed variants of the seed.
+                    let jitter = (rng.random::<f32>() - 0.5) + (rng.random::<f32>() - 0.5);
+                    *g = (*g + jitter * 75.0).clamp(-100.0, 100.0);
+                }
+            }
+        }
+        println!("warm start: {} exact + {} perturbed variants", seed_sources.len(), variants);
+    }
 
     std::fs::create_dir_all(&cfg.out_dir)?;
     let checkpoint = cfg.out_dir.join("best-checkpoint.json");

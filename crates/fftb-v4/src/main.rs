@@ -62,6 +62,10 @@ enum Command {
         /// Truncate corpus at this tournament id (V3 snapshot gate: 1793681777895).
         #[arg(long, default_value_t = 0)]
         max_tournament: i64,
+        /// Warm-start seed file (repeatable): V1 winner file or WinProbModel
+        /// JSON, auto-detected. (--seed is the RNG seed.)
+        #[arg(long = "seed-file")]
+        seeds: Vec<std::path::PathBuf>,
     },
 }
 
@@ -147,6 +151,7 @@ fn main() -> anyhow::Result<()> {
             memory_fraction,
             out,
             max_tournament,
+            seeds,
         } => {
             let fitness = match fitness.as_str() {
                 "margin" => fftb_v4::train::FitnessKind::Margin,
@@ -171,6 +176,7 @@ fn main() -> anyhow::Result<()> {
                 out_dir,
                 data_dir: config.data_dir.clone(),
                 max_tournament_id: max_tournament,
+                seeds,
             };
             fftb_v4::train::run(&cfg)?;
             Ok(())
