@@ -22,6 +22,7 @@ fftb-core = { git = "file:///C:/Projects/fftb-trainer-botland", rev = "020d177" 
 fftb-ga = { git = "file:///C:/Projects/fftb-trainer-botland", rev = "020d177" }
 rand_chacha = "0.9"
 rand = "0.9"
+tiny_http = "0.12"
 
 # GA engine spike (Phase 0.5) — both candidates as dev-deps until the pick.
 [dev-dependencies]

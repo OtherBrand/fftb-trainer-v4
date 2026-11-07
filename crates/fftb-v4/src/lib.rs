@@ -12,6 +12,7 @@ pub mod export;
 pub mod features;
 pub mod fitness;
 pub mod maps;
+pub mod monitor;
 pub mod seed;
 pub mod seam;
 pub mod train;

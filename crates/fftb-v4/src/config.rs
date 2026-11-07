@@ -18,6 +18,20 @@ pub struct V4Config {
     /// data dir. The dump host has killed endpoints before (teamvalue.txt
     /// died Oct 2026), so a stale local copy must beat a dead dataset build.
     pub maps_cache: PathBuf,
+    /// Monitoring API bind address (train --serve / serve subcommand).
+    /// DEFAULTS TO LOOPBACK — safe on any machine. Binding the LAN
+    /// (0.0.0.0) for a remote training node is the owner's explicit
+    /// config-toml decision, ideally with monitor_token set.
+    #[serde(default = "default_monitor_bind")]
+    pub monitor_bind: String,
+    /// Optional ?token= guard; empty string = open. Required practice
+    /// whenever binding beyond loopback.
+    #[serde(default)]
+    pub monitor_token: String,
+}
+
+fn default_monitor_bind() -> String {
+    "127.0.0.1:8388".to_string()
 }
 
 impl V4Config {

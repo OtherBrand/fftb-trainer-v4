@@ -51,6 +51,11 @@ pub struct TrainConfig {
     /// format auto-detected). Genome 0..n = one exact copy each; a band of
     /// perturbed variants follows; the rest stays random.
     pub seeds: Vec<std::path::PathBuf>,
+    /// Start the HTTP monitoring API alongside training (bind/token from
+    /// config; loopback by default — LAN binding is an owner decision).
+    pub serve: bool,
+    pub monitor_bind: String,
+    pub monitor_token: String,
 }
 
 fn detect_and_load_seed(path: &std::path::Path) -> anyhow::Result<crate::seed::SeedSource> {
@@ -254,6 +259,33 @@ pub fn run(cfg: &TrainConfig) -> anyhow::Result<TrainReport> {
         "training: {} hours, seed {}, fitness {:?} (neg mult {:.0})",
         cfg.hours, cfg.seed, cfg.fitness, NEGATIVE_SCORE_MULTIPLIER
     );
+    let status = if cfg.serve {
+        let status = crate::monitor::StatusHandle::new(
+            &format!(
+                "train --dataset {} --hours {} --population {} --seed {}",
+                if cfg.deep { "deep" } else { "main" },
+                cfg.hours,
+                pop_size,
+                cfg.seed
+            ),
+            pop_size,
+            cfg.seed,
+        );
+        let token = (!cfg.monitor_token.is_empty()).then(|| cfg.monitor_token.clone());
+        crate::monitor::start_server(
+            status.clone(),
+            cfg.out_dir
+                .parent()
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_else(|| "data/runs".into()),
+            token,
+            &cfg.monitor_bind,
+        )?;
+        println!("monitoring API on http://{}", cfg.monitor_bind);
+        Some(status)
+    } else {
+        None
+    };
     let run_start = Instant::now();
     let mut last_write = Instant::now() - Duration::from_secs(10);
     let set_for_cb = &set;
@@ -265,6 +297,20 @@ pub fn run(cfg: &TrainConfig) -> anyhow::Result<TrainReport> {
         |stats, best| {
             if last_write.elapsed() >= Duration::from_secs(5) {
                 last_write = Instant::now();
+                if let Some(status) = &status {
+                    status.update(
+                        stats.generation,
+                        stats.best_gil,
+                        stats.elapsed.as_millis() as u64,
+                        &format!(
+                            "gen {:>6} | best {:>14.0} | mean {:>14.0} | {:>5.0}m",
+                            stats.generation,
+                            stats.best_gil,
+                            stats.mean_gil,
+                            stats.elapsed.as_secs_f64() / 60.0
+                        ),
+                    );
+                }
                 let weights: Vec<f32> = translate.iter().map(|&g| best[g as usize]).collect();
                 let checkpoint_json = serde_json::json!({
                     "generation": stats.generation,
@@ -298,6 +344,9 @@ pub fn run(cfg: &TrainConfig) -> anyhow::Result<TrainReport> {
         result.best_gil,
         result.best_generation
     );
+    if let Some(status) = &status {
+        status.finish();
+    }
 
     // Extract V4's weights from the best genome and calibrate.
     let weights: Vec<f32> = translate.iter().map(|&g| result.best_genome[g as usize]).collect();

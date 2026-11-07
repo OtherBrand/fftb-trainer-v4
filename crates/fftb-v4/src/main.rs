@@ -66,7 +66,14 @@ enum Command {
         /// JSON, auto-detected. (--seed is the RNG seed.)
         #[arg(long = "seed-file")]
         seeds: Vec<std::path::PathBuf>,
+        /// Start the HTTP monitoring API alongside training (bind/token
+        /// from config.toml; loopback by default).
+        #[arg(long, default_value_t = false)]
+        serve: bool,
     },
+    /// Serve the monitoring API over an existing runs directory (no
+    /// training; status reports running=false).
+    Serve,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -152,6 +159,7 @@ fn main() -> anyhow::Result<()> {
             out,
             max_tournament,
             seeds,
+            serve,
         } => {
             let fitness = match fitness.as_str() {
                 "margin" => fftb_v4::train::FitnessKind::Margin,
@@ -177,9 +185,30 @@ fn main() -> anyhow::Result<()> {
                 data_dir: config.data_dir.clone(),
                 max_tournament_id: max_tournament,
                 seeds,
+                serve,
+                monitor_bind: config.monitor_bind.clone(),
+                monitor_token: config.monitor_token.clone(),
             };
             fftb_v4::train::run(&cfg)?;
             Ok(())
+        }
+        Command::Serve => {
+            let status = fftb_v4::monitor::StatusHandle::idle();
+            let token = (!config.monitor_token.is_empty()).then(|| config.monitor_token.clone());
+            println!(
+                "monitoring API on http://{} (browsing data/runs; no active run)",
+                config.monitor_bind
+            );
+            fftb_v4::monitor::start_server(
+                status,
+                std::path::PathBuf::from("data/runs"),
+                token,
+                &config.monitor_bind,
+            )?;
+            // Serve until interrupted.
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(3600));
+            }
         }
     }
 }
