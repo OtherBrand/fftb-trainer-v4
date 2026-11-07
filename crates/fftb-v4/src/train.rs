@@ -150,6 +150,10 @@ pub fn run(cfg: &TrainConfig) -> anyhow::Result<TrainReport> {
     }
 
     let set = TrainingSet::from_matches(&matches);
+    // The match set is string-heavy (raw token lists per side); the
+    // training set is compact CSR. Free the intermediate before the GA
+    // starts — on small machines this releases ~1-2 GB for the whole run.
+    drop(matches);
     let total = set.len();
     let holdout_len = ((total as f32 * HOLDOUT_FRACTION) as usize).max(1);
     let train_end = total - holdout_len;
