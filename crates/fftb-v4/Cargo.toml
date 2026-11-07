@@ -18,8 +18,8 @@ ureq = "2"
 # The family GA engine (SoA, deterministic ChaCha8) + the Genome it
 # populates. Pinned to the shared repo's local commit until the GitHub
 # push is confirmed; then this becomes the remote URL at the same rev.
-fftb-core = { git = "file:///C:/Projects/fftb-trainer-botland", rev = "a294229" }
-fftb-ga = { git = "file:///C:/Projects/fftb-trainer-botland", rev = "a294229" }
+fftb-core = { git = "file:///C:/Projects/fftb-trainer-botland", rev = "020d177" }
+fftb-ga = { git = "file:///C:/Projects/fftb-trainer-botland", rev = "020d177" }
 rand_chacha = "0.9"
 rand = "0.9"
 

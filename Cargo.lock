@@ -299,7 +299,7 @@ checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 [[package]]
 name = "fftb-core"
 version = "0.1.0"
-source = "git+file:///C:/Projects/fftb-trainer-botland?rev=a294229#a29422939cc47a0c34d4565e21f0e91bdf5af30b"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=020d177#020d177bb8bc8157813c1ea7500090410cc95dc6"
 dependencies = [
  "serde",
  "serde_json",
@@ -310,7 +310,7 @@ dependencies = [
 [[package]]
 name = "fftb-ga"
 version = "0.1.0"
-source = "git+file:///C:/Projects/fftb-trainer-botland?rev=a294229#a29422939cc47a0c34d4565e21f0e91bdf5af30b"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=020d177#020d177bb8bc8157813c1ea7500090410cc95dc6"
 dependencies = [
  "fftb-core",
  "fftb-sim",
@@ -323,7 +323,7 @@ dependencies = [
 [[package]]
 name = "fftb-sim"
 version = "0.1.0"
-source = "git+file:///C:/Projects/fftb-trainer-botland?rev=a294229#a29422939cc47a0c34d4565e21f0e91bdf5af30b"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=020d177#020d177bb8bc8157813c1ea7500090410cc95dc6"
 dependencies = [
  "fftb-core",
 ]
