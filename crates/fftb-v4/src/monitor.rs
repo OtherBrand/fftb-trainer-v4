@@ -39,6 +39,11 @@ pub struct RunStatus {
     pub elapsed_ms: u64,
     pub population: usize,
     pub seed: u64,
+    /// Genome length of the current/last run (0 = none yet) — feeds the
+    /// memory estimator.
+    pub genome_length: usize,
+    /// Free system RAM right now (30s cache) — drives the estimator.
+    pub available_bytes: u64,
     pub last_log_lines: Vec<String>,
 }
 
@@ -52,6 +57,8 @@ impl Default for RunStatus {
             elapsed_ms: 0,
             population: 0,
             seed: 0,
+            genome_length: 0,
+            available_bytes: 0,
             last_log_lines: Vec::new(),
         }
     }
@@ -100,6 +107,10 @@ impl StatusHandle {
         self.inner.lock().unwrap().population = population;
     }
 
+    pub fn set_genome_length(&self, genome_length: usize) {
+        self.inner.lock().unwrap().genome_length = genome_length;
+    }
+
     pub fn finish(&self) {
         self.inner.lock().unwrap().running = false;
     }
@@ -126,6 +137,17 @@ pub struct StartParams {
     pub seed_files: Vec<String>,
     #[serde(default)]
     pub max_tournament: i64,
+    /// Chronological lookback: train on only the newest N tournaments
+    /// (None / 0 = full corpus).
+    #[serde(default)]
+    pub tournaments: Option<usize>,
+    /// Memory fraction for population auto-sizing (estimator slider).
+    #[serde(default = "default_fraction")]
+    pub memory_fraction: f64,
+}
+
+fn default_fraction() -> f64 {
+    0.7
 }
 
 fn default_dataset() -> String { "deep".into() }
@@ -148,6 +170,9 @@ pub struct Monitor {
     config: crate::config::V4Config,
     status: Mutex<StatusHandle>,
     active: Mutex<Option<ActiveRun>>,
+    /// Available-RAM cache (the probe spawns PowerShell; polled status
+    /// should not). TTL 30s.
+    memory_cache: Mutex<(std::time::Instant, u64)>,
 }
 
 impl Monitor {
@@ -157,11 +182,23 @@ impl Monitor {
             config,
             status: Mutex::new(StatusHandle::idle()),
             active: Mutex::new(None),
+            memory_cache: Mutex::new((std::time::Instant::now() - std::time::Duration::from_secs(3600), 0)),
         }
     }
 
+    fn available_bytes_cached(&self) -> u64 {
+        let mut cache = self.memory_cache.lock().unwrap();
+        if cache.0.elapsed() > std::time::Duration::from_secs(30) {
+            cache.0 = std::time::Instant::now();
+            cache.1 = crate::train::available_bytes();
+        }
+        cache.1
+    }
+
     pub fn status(&self) -> RunStatus {
-        self.status.lock().unwrap().snapshot()
+        let mut snapshot = self.status.lock().unwrap().snapshot();
+        snapshot.available_bytes = self.available_bytes_cached();
+        snapshot
     }
 
     /// `train --serve`: the CLI's in-process run registers itself so the
@@ -225,10 +262,11 @@ impl Monitor {
             seed: params.seed,
             deep,
             fitness,
-            memory_fraction: 0.7,
+            memory_fraction: params.memory_fraction.clamp(0.05, 0.95),
             out_dir: out_dir.clone(),
             data_dir: self.config.data_dir.clone(),
             max_tournament_id: params.max_tournament,
+            tournaments: params.tournaments,
             seeds: params.seed_files.iter().map(PathBuf::from).collect(),
             stop_signal: Some(Arc::clone(&stop)),
         };
@@ -302,10 +340,13 @@ pub fn start_server(
                 None => (url.clone(), String::new()),
             };
             if let Some(expected) = &token {
+                // Search ALL pairs — the token may sit anywhere in the
+                // query string (regression: ?population=N&token=… 403'd
+                // when the extractor only inspected the first pair).
                 let supplied = query
                     .split('&')
-                    .find_map(|pair| pair.split_once('='))
-                    .filter(|(k, _)| *k == "token")
+                    .filter_map(|pair| pair.split_once('='))
+                    .find(|(k, _)| *k == "token")
                     .map(|(_, v)| v.to_string());
                 if supplied.as_deref() != Some(expected.as_str()) {
                     let response = tiny_http::Response::from_string("forbidden".to_string())
@@ -326,6 +367,49 @@ pub fn start_server(
                     .unwrap(),
                 ),
                 (tiny_http::Method::Get, "status") => json_response(&monitor.status()),
+                (tiny_http::Method::Get, "estimate") => {
+                    // Memory calculator (V3-console parity): live available
+                    // RAM, the last run's genome length, the suggested
+                    // population at a fraction, and — when ?population=N is
+                    // supplied — the double-buffered footprint for that
+                    // population. Footprint per genome: 2×genes×4B + 8B.
+                    let query_param = |key: &str| {
+                        query
+                            .split('&')
+                            .filter_map(|pair| pair.split_once('='))
+                            .find(|(k, _)| *k == key)
+                            .and_then(|(_, v)| v.parse::<f64>().ok())
+                    };
+                    let available = crate::train::available_bytes();
+                    let genome_length = if query_param("genes").is_some() {
+                        query_param("genes").unwrap_or(0.0) as usize
+                    } else {
+                        let known = monitor.status().genome_length;
+                        if known > 0 { known } else { 1260 }
+                    };
+                    let fraction = query_param("fraction").unwrap_or(0.7).clamp(0.05, 0.95);
+                    let suggested = fftb_ga::population::population_for_memory(
+                        available,
+                        genome_length,
+                        fraction,
+                    );
+                    let mut payload = serde_json::json!({
+                        "available_bytes": available,
+                        "genome_length": genome_length,
+                        "fraction": fraction,
+                        "suggested_population": suggested,
+                        "footprint_per_genome_bytes": genome_length * 8 + 8,
+                    });
+                    if let Some(pop) = query_param("population") {
+                        let pop = pop.max(0.0) as usize;
+                        let bytes = pop as u64 * (genome_length as u64 * 8 + 8);
+                        payload["population"] = serde_json::json!(pop);
+                        payload["population_bytes"] = serde_json::json!(bytes);
+                        payload["fits"] = serde_json::json!(bytes as f64
+                            <= available as f64 * fraction);
+                    }
+                    json_response(&payload)
+                }
                 (tiny_http::Method::Get, "runs") => {
                     json_response(&serde_json::json!({ "runs": monitor.runs_list() }))
                 }
@@ -367,8 +451,8 @@ pub fn start_server(
                         ["runs", name, "log"] if safe_name(name) => {
                             let tail = query
                                 .split('&')
-                                .find_map(|pair| pair.split_once('='))
-                                .filter(|(k, _)| *k == "tail")
+                                .filter_map(|pair| pair.split_once('='))
+                                .find(|(k, _)| *k == "tail")
                                 .and_then(|(_, v)| v.parse::<usize>().ok())
                                 .unwrap_or(DEFAULT_LOG_TAIL);
                             // run.log = launcher-redirected stdout; trainer.log
@@ -446,6 +530,45 @@ mod tests {
     }
 
     #[test]
+    fn token_accepted_in_any_query_position() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .unwrap();
+        let config = crate::config::V4Config::load(repo_root).expect("shipped config");
+        let monitor = Arc::new(Monitor::new(
+            std::env::temp_dir().join("v4-monitor-token-test"),
+            config,
+        ));
+        let (_, addr) = start_server(monitor, Some("sekret".into()), "127.0.0.1:0").unwrap();
+        let base = format!("http://{addr}");
+        // Token FIRST and token NOT-first must both authenticate…
+        assert_eq!(
+            ureq::get(&format!("{base}/status"))
+                .query("token", "sekret")
+                .call()
+                .unwrap()
+                .status(),
+            200
+        );
+        assert_eq!(
+            ureq::get(&format!("{base}/status"))
+                .query("population", "5")
+                .query("token", "sekret")
+                .call()
+                .unwrap()
+                .status(),
+            200
+        );
+        // …and absence must be refused (ureq surfaces non-2xx as Err).
+        let refused = ureq::get(&format!("{base}/status")).call();
+        assert!(
+            matches!(&refused, Err(ureq::Error::Status(403, _))),
+            "expected 403 without token, got {refused:?}"
+        );
+    }
+
+    #[test]
     fn start_run_spawns_watches_and_stops() {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .ancestors()
@@ -466,6 +589,8 @@ mod tests {
                 fitness: "margin".into(),
                 seed_files: vec![],
                 max_tournament: 0,
+                tournaments: Some(40),
+                memory_fraction: 0.7,
             })
             .expect("first start");
         assert!(monitor.start_run(StartParams::default()).is_err());

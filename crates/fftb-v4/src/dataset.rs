@@ -165,6 +165,24 @@ pub struct DatasetResult {
     pub skipped: HashMap<String, String>,
 }
 
+/// Keep only the newest `n` tournaments' matches (chronological lookback
+/// window). Pure function over the chronologically-sorted match list.
+pub fn keep_newest_tournaments(matches: &mut Vec<crate::seam::MatchLite>, n: usize) {
+    if n == 0 {
+        return;
+    }
+    let mut newest: Vec<u64> = Vec::with_capacity(n);
+    for m in matches.iter().rev() {
+        if !newest.contains(&m.tournament_id) {
+            newest.push(m.tournament_id);
+            if newest.len() == n {
+                break;
+            }
+        }
+    }
+    matches.retain(|m| newest.contains(&m.tournament_id));
+}
+
 /// Build the gate-comparable corpus: the UNION of both caches, deduplicated
 /// by tournament id (main-cache copy preferred — bet-covered and richer),
 /// chronologically ordered. Mirrors fftb-forecast's dual-cache arithmetic
@@ -215,5 +233,38 @@ pub fn build_dataset_union(main_dir: &std::path::Path, deep_dir: &std::path::Pat
     DatasetResult {
         set: set.sorted_chronologically(),
         skipped,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::seam::{MatchLite, TeamSideLite};
+
+    fn make(tid: u64) -> MatchLite {
+        MatchLite {
+            tournament_id: tid,
+            match_number: 0,
+            left: TeamSideLite::default(),
+            right: TeamSideLite::default(),
+            left_color: "Red".into(),
+            right_color: "Blue".into(),
+            map_number: 0,
+            winner_is_left: true,
+            odds_left: None,
+        }
+    }
+
+    #[test]
+    fn lookback_keeps_newest_n_tournaments_whole() {
+        let mut matches: Vec<MatchLite> = (0..32).map(|i| make(i / 8)).collect();
+        keep_newest_tournaments(&mut matches, 2);
+        let tids: Vec<u64> = matches.iter().map(|m| m.tournament_id).collect();
+        assert!(tids.iter().all(|&t| t >= 2), "only newest kept: {tids:?}");
+        assert_eq!(matches.len(), 16, "two whole tournaments");
+        // Zero means the full corpus.
+        let mut all: Vec<MatchLite> = (0..16).map(|i| make(i / 8)).collect();
+        keep_newest_tournaments(&mut all, 0);
+        assert_eq!(all.len(), 16);
     }
 }

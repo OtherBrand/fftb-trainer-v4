@@ -47,6 +47,9 @@ pub struct TrainConfig {
     /// tournament id (V3's training snapshot boundary = 1793681777895;
     /// their +622 backfill sits past it). 0 = no truncation.
     pub max_tournament_id: i64,
+    /// Chronological lookback window: train on only the newest N
+    /// tournaments (None / 0 = the full corpus).
+    pub tournaments: Option<usize>,
     /// Warm-start seed files (V1 winner files and/or WinProbModel JSONs;
     /// format auto-detected). Genome 0..n = one exact copy each; a band of
     /// perturbed variants follows; the rest stays random.
@@ -88,7 +91,7 @@ impl Evaluator for V4Evaluator<'_> {
     }
 }
 
-fn available_bytes() -> u64 {
+pub fn available_bytes() -> u64 {
     // Dependency-free probe (V3 doctrine: PowerShell CIM; sysinfo's DLL set
     // gets blocked by Application Control on this machine).
     std::process::Command::new("powershell")
@@ -174,6 +177,15 @@ pub fn run_inner(
             matches.len()
         );
     }
+    if let Some(n) = cfg.tournaments.filter(|&n| n > 0) {
+        let before = matches.len();
+        crate::dataset::keep_newest_tournaments(&mut matches.matches, n);
+        println!(
+            "lookback window: newest {n} tournaments, {} -> {} matches",
+            before,
+            matches.len()
+        );
+    }
 
     let set = TrainingSet::from_matches(&matches);
     // The match set is string-heavy (raw token lists per side); the
@@ -206,6 +218,9 @@ pub fn run_inner(
         .map(|n| genome.id_of(n).ok_or_else(|| anyhow::anyhow!("gene for {n} missing after freeze")))
         .collect::<anyhow::Result<_>>()?;
     let genome_set = set.remap(&translate);
+    if let Some(status) = &status {
+        status.set_genome_length(genome.size());
+    }
 
     let pop_size = if cfg.population > 0 {
         cfg.population

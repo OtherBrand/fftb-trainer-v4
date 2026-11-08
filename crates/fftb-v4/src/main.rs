@@ -62,6 +62,10 @@ enum Command {
         /// Truncate corpus at this tournament id (V3 snapshot gate: 1793681777895).
         #[arg(long, default_value_t = 0)]
         max_tournament: i64,
+        /// Chronological lookback: train on only the newest N tournaments
+        /// (0 = the full corpus).
+        #[arg(long, default_value_t = 0)]
+        tournaments: usize,
         /// Warm-start seed file (repeatable): V1 winner file or WinProbModel
         /// JSON, auto-detected. (--seed is the RNG seed.)
         #[arg(long = "seed-file")]
@@ -158,6 +162,7 @@ fn main() -> anyhow::Result<()> {
             memory_fraction,
             out,
             max_tournament,
+            tournaments,
             seeds,
             serve,
         } => {
@@ -184,6 +189,7 @@ fn main() -> anyhow::Result<()> {
                 out_dir,
                 data_dir: config.data_dir.clone(),
                 max_tournament_id: max_tournament,
+                tournaments: (tournaments > 0).then_some(tournaments),
                 seeds,
                 stop_signal: None,
             };

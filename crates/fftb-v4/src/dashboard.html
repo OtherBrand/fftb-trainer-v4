@@ -38,6 +38,14 @@
     padding: 12px 14px; height: 420px; overflow-y: auto; white-space: pre;
     font-size: 12.5px; margin: 0;
   }
+  .pop-readout .number { font-size: 26px; font-weight: 700; color: var(--accent); }
+  .pop-readout .unit { color: var(--dim); font-size: 11.5px; }
+  .pop-readout .footprint { color: var(--dim); font-size: 11.5px; margin-top: 4px; }
+  .est-controls label { color: var(--dim); font-size: 11.5px; }
+  .est-controls .val { color: var(--text); }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .facts { display: flex; gap: 20px; color: var(--dim); font-size: 11px; flex-wrap: wrap; }
+  .facts b { display: block; color: var(--text); font-size: 13px; }
   #runs a { color: var(--accent); text-decoration: none; display: block; padding: 3px 0; }
   #runs a:hover { text-decoration: underline; }
   #runs .name { color: var(--text); }
@@ -89,6 +97,8 @@
           <input id="f-pop" type="number" min="0" value="20000"></div>
         <div><label for="f-seed">RNG seed</label>
           <input id="f-seed" type="number" value="42"></div>
+        <div><label for="f-tournaments">Tournaments lookback (0 = all)</label>
+          <input id="f-tournaments" type="number" min="0" value="0"></div>
         <div style="grid-column: 1 / 3"><label for="f-fitness">Fitness</label>
           <select id="f-fitness">
             <option>margin</option><option>accuracy</option><option>logloss</option>
@@ -97,6 +107,22 @@
         <button id="stop" type="button">■ Stop</button>
       </form>
       <div id="msg"></div>
+    </div>
+    <p class="section" style="margin-top:16px">Memory estimator</p>
+    <div class="card">
+      <div class="pop-readout">
+        <div class="number" id="est-pop">–</div>
+        <div class="unit">population that fits at this fraction</div>
+        <div class="footprint" id="est-foot"></div>
+      </div>
+      <div class="est-controls" style="margin-top:10px">
+        <label>memory fraction: <span class="val" id="frac-val">70%</span></label>
+        <input id="frac" type="range" min="10" max="90" step="5" value="70">
+      </div>
+      <div class="facts" style="margin-top:10px">
+        <span>available RAM<b id="est-avail">–</b></span>
+        <span>genes<b id="est-genes">–</b></span>
+      </div>
     </div>
     <p class="section" style="margin-top:16px">Runs</p>
     <div class="card" id="runs"><span style="color:var(--dim)">loading…</span></div>
@@ -129,6 +155,11 @@
       $("elapsed").textContent = s.elapsed_ms ? fmtElapsed(s.elapsed_ms) : "–";
       $("pop").textContent = s.population || "–";
       $("seed").textContent = s.seed || "–";
+      if (s.available_bytes) {
+        lastMemory.available = s.available_bytes;
+        if (s.genome_length) lastMemory.genes = s.genome_length;
+        renderEstimator();
+      }
       var log = $("log");
       if (s.last_log_lines.length !== lastLogLength) {
         lastLogLength = s.last_log_lines.length;
@@ -185,6 +216,8 @@
       population: parseInt($("f-pop").value, 10) || 0,
       seed: parseInt($("f-seed").value, 10) || 42,
       fitness: $("f-fitness").value,
+      tournaments: parseInt($("f-tournaments").value, 10) || 0,
+      memory_fraction: parseInt($("frac").value, 10) / 100,
       seed_files: []
     });
     fetch("/start" + q, { method: "POST", body: body })
@@ -196,6 +229,32 @@
     $("msg").textContent = "requesting stop…";
     post("/stop").then(function (r) { $("msg").textContent = r.text; });
   });
+
+  function fmtBytes(b) {
+    if (b >= 1 << 30) return (b / (1 << 30)).toFixed(2) + " GB";
+    if (b >= 1 << 20) return (b / (1 << 20)).toFixed(0) + " MB";
+    return b + " B";
+  }
+  // Client mirror of fftb_ga::population::population_for_memory:
+  // double-buffered footprint per genome = 2 x genes x 4B + 8B.
+  function populationFor(available, genes, frac) {
+    return Math.floor((available * frac) / (2 * genes * 4 + 8));
+  }
+  var lastMemory = { available: 0, genes: 1260 };
+  function renderEstimator() {
+    var frac = parseInt($("frac").value, 10) / 100;
+    $("frac-val").textContent = Math.round(frac * 100) + "%";
+    if (!lastMemory.available) return;
+    var genes = lastMemory.genes || 1260;
+    var pop = populationFor(lastMemory.available, genes, frac);
+    $("est-pop").textContent = pop.toLocaleString();
+    $("est-avail").textContent = fmtBytes(lastMemory.available);
+    $("est-genes").textContent = genes;
+    var bytes = pop * (2 * genes * 4 + 8);
+    $("est-foot").textContent = "peak footprint ≈ " + fmtBytes(bytes) +
+      " (double-buffered) · " + fmtBytes(lastMemory.available * frac) + " of available";
+  }
+  $("frac").addEventListener("input", renderEstimator);
 
   pollStatus();
   pollRuns();
