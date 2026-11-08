@@ -51,11 +51,9 @@ pub struct TrainConfig {
     /// format auto-detected). Genome 0..n = one exact copy each; a band of
     /// perturbed variants follows; the rest stays random.
     pub seeds: Vec<std::path::PathBuf>,
-    /// Start the HTTP monitoring API alongside training (bind/token from
-    /// config; loopback by default — LAN binding is an owner decision).
-    pub serve: bool,
-    pub monitor_bind: String,
-    pub monitor_token: String,
+    /// Cooperative stop flag — checked between generations (the console's
+    /// stop button / POST /stop).
+    pub stop_signal: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 fn detect_and_load_seed(path: &std::path::Path) -> anyhow::Result<crate::seed::SeedSource> {
@@ -129,6 +127,15 @@ pub struct TrainReport {
 }
 
 pub fn run(cfg: &TrainConfig) -> anyhow::Result<TrainReport> {
+    run_inner(cfg, None)
+}
+
+/// `run_inner`: the trainer proper, optionally publishing live status (the
+/// web console's handle) and honouring a cooperative stop flag.
+pub fn run_inner(
+    cfg: &TrainConfig,
+    status: Option<crate::monitor::StatusHandle>,
+) -> anyhow::Result<TrainReport> {
     let cache_dir = cfg.data_dir.join(if cfg.deep {
         "tournamentCacheDeep"
     } else {
@@ -252,6 +259,7 @@ pub fn run(cfg: &TrainConfig) -> anyhow::Result<TrainReport> {
     let evaluator = V4Evaluator { set: &genome_set, train_end, kind: cfg.fitness };
     let engine_cfg = EngineConfig {
         time_limit: Duration::from_secs_f64(cfg.hours * 3600.0),
+        stop_signal: cfg.stop_signal.clone(),
         ..EngineConfig::v2_defaults()
     };
 
@@ -259,33 +267,9 @@ pub fn run(cfg: &TrainConfig) -> anyhow::Result<TrainReport> {
         "training: {} hours, seed {}, fitness {:?} (neg mult {:.0})",
         cfg.hours, cfg.seed, cfg.fitness, NEGATIVE_SCORE_MULTIPLIER
     );
-    let status = if cfg.serve {
-        let status = crate::monitor::StatusHandle::new(
-            &format!(
-                "train --dataset {} --hours {} --population {} --seed {}",
-                if cfg.deep { "deep" } else { "main" },
-                cfg.hours,
-                pop_size,
-                cfg.seed
-            ),
-            pop_size,
-            cfg.seed,
-        );
-        let token = (!cfg.monitor_token.is_empty()).then(|| cfg.monitor_token.clone());
-        crate::monitor::start_server(
-            status.clone(),
-            cfg.out_dir
-                .parent()
-                .map(std::path::Path::to_path_buf)
-                .unwrap_or_else(|| "data/runs".into()),
-            token,
-            &cfg.monitor_bind,
-        )?;
-        println!("monitoring API on http://{}", cfg.monitor_bind);
-        Some(status)
-    } else {
-        None
-    };
+    if let Some(status) = &status {
+        status.set_population(pop_size);
+    }
     let run_start = Instant::now();
     let mut last_write = Instant::now() - Duration::from_secs(10);
     let set_for_cb = &set;

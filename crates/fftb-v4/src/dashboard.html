@@ -43,6 +43,19 @@
   #runs .name { color: var(--text); }
   .section { color: var(--dim); font-size: 11px; text-transform: uppercase;
     letter-spacing: 0.08em; margin: 0 0 6px; }
+  form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  label { color: var(--dim); font-size: 11px; display: block; margin-bottom: 2px; }
+  input, select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 5px 7px; font: inherit; width: 100%;
+  }
+  button {
+    border: none; border-radius: 4px; padding: 7px 0; font: inherit;
+    cursor: pointer; text-align: center;
+  }
+  #start { background: var(--accent); color: #10231a; grid-column: 1 / 2; }
+  #stop  { background: var(--warn); color: #2b1f0d; grid-column: 2 / 3; }
+  #msg { color: var(--dim); font-size: 12px; margin-top: 8px; min-height: 1.2em; }
 </style>
 </head>
 <body>
@@ -65,7 +78,27 @@
     <pre id="log"></pre>
   </section>
   <section>
-    <p class="section">Runs</p>
+    <p class="section">Controls</p>
+    <div class="card">
+      <form onsubmit="return false">
+        <div><label for="f-dataset">Dataset</label>
+          <select id="f-dataset"><option>deep</option><option>main</option></select></div>
+        <div><label for="f-hours">Hours</label>
+          <input id="f-hours" type="number" step="any" min="0.01" value="72"></div>
+        <div><label for="f-pop">Population (0 = auto)</label>
+          <input id="f-pop" type="number" min="0" value="20000"></div>
+        <div><label for="f-seed">RNG seed</label>
+          <input id="f-seed" type="number" value="42"></div>
+        <div style="grid-column: 1 / 3"><label for="f-fitness">Fitness</label>
+          <select id="f-fitness">
+            <option>margin</option><option>accuracy</option><option>logloss</option>
+          </select></div>
+        <button id="start" type="button">▶ Start run</button>
+        <button id="stop" type="button">■ Stop</button>
+      </form>
+      <div id="msg"></div>
+    </div>
+    <p class="section" style="margin-top:16px">Runs</p>
     <div class="card" id="runs"><span style="color:var(--dim)">loading…</span></div>
   </section>
 </main>
@@ -138,6 +171,31 @@
       });
     }).catch(function () {});
   }
+
+  function post(path) {
+    return fetch(path + q, { method: "POST" }).then(function (r) {
+      return r.text().then(function (t) { return { ok: r.ok, text: t }; });
+    });
+  }
+  $("start").addEventListener("click", function () {
+    $("msg").textContent = "starting…";
+    var body = JSON.stringify({
+      dataset: $("f-dataset").value,
+      hours: parseFloat($("f-hours").value) || 6,
+      population: parseInt($("f-pop").value, 10) || 0,
+      seed: parseInt($("f-seed").value, 10) || 42,
+      fitness: $("f-fitness").value,
+      seed_files: []
+    });
+    fetch("/start" + q, { method: "POST", body: body })
+      .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, t: t }; }); })
+      .then(function (r) { $("msg").textContent = r.ok ? "started: " + r.t : "refused: " + r.t; })
+      .catch(function (e) { $("msg").textContent = "error: " + e; });
+  });
+  $("stop").addEventListener("click", function () {
+    $("msg").textContent = "requesting stop…";
+    post("/stop").then(function (r) { $("msg").textContent = r.text; });
+  });
 
   pollStatus();
   pollRuns();

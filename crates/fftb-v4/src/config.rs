@@ -39,7 +39,18 @@ impl V4Config {
         let path = repo_root.join("config.toml");
         let text = std::fs::read_to_string(&path)
             .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
-        Ok(toml::from_str(&text)?)
+        let mut config: Self = toml::from_str(&text)?;
+        // Absolutize against the repo root: console-spawned runs may not
+        // share the launcher's working directory (family doctrine says run
+        // from the repo root, but spawned threads inherit whatever CWD
+        // the spawner had — tests caught this, laptops would have too).
+        if config.data_dir.is_relative() {
+            config.data_dir = repo_root.join(&config.data_dir);
+        }
+        if config.maps_cache.is_relative() {
+            config.maps_cache = repo_root.join(&config.maps_cache);
+        }
+        Ok(config)
     }
 }
 
