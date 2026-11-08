@@ -32,12 +32,12 @@ fn repo_powershell_scripts_parse_clean() {
     );
     for script in &scripts {
         let output = Command::new("powershell")
+            .env("SCRIPT_PATH", script)
             .args([
                 "-NoProfile",
                 "-Command",
-                "$t=$null; $e=$null; [System.Management.Automation.Language.Parser]::ParseFile($args[0], [ref]$t, [ref]$e) | Out-Null; if ($e.Count -gt 0) { $e | ForEach-Object { Write-Output ($_.Message + ' at line ' + $_.Extent.StartLineNumber) }; exit 1 } else { exit 0 }",
+                "$t=$null; $e=$null; [System.Management.Automation.Language.Parser]::ParseFile($env:SCRIPT_PATH, [ref]$t, [ref]$e) | Out-Null; if ($e.Count -gt 0) { $e | ForEach-Object { Write-Output ($_.Message + ' at line ' + $_.Extent.StartLineNumber) }; exit 1 } else { exit 0 }",
             ])
-            .arg(script)
             .output()
             .expect("powershell runs");
         let name = script.file_name().unwrap_or_default().to_string_lossy();

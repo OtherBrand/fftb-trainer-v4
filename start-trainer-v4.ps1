@@ -1,5 +1,5 @@
-# Launches a detached V4 training run (family ops doctrine: trainer runs
-# NEVER live inside a Claude session — background tasks get reaped; runs
+﻿# Launches a detached V4 training run (family ops doctrine: trainer runs
+# NEVER live inside a Claude session -- background tasks get reaped; runs
 # belong in their own process with logs on disk).
 #
 # Usage from the repo root:  powershell -File start-trainer-v4.ps1 [-Hours 6] [-Population 0]
