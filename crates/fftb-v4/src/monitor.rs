@@ -147,6 +147,10 @@ pub fn start_server(
 fn route(status: &StatusHandle, runs_dir: &Path, path: &str, query: &str) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
     let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
     match segments.as_slice() {
+        [] | [""] => tiny_http::Response::from_string(include_str!("dashboard.html")).with_header(
+            tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
+                .unwrap(),
+        ),
         ["status"] => json_response(&status.snapshot()),
         ["runs"] => {
             let mut runs: Vec<String> = Vec::new();
@@ -237,6 +241,8 @@ mod tests {
         std::fs::write(dir.join("run-a").join("run.log"), "l1\nl2\nl3\n").unwrap();
 
         let status = StatusHandle::idle();
+        let root = route(&status, &dir, "/", "");
+        assert_eq!(root.status_code(), 200);
         let response = route(&status, &dir, "/runs/run-a/report", "");
         assert_eq!(response.status_code(), 200);
         let log = route(&status, &dir, "/runs/run-a/log", "tail=2");

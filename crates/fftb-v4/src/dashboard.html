@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fftb-trainer-v4</title>
+<style>
+  :root {
+    --bg: #101418; --panel: #171d24; --line: #232c36;
+    --text: #c9d4de; --dim: #6b7a88; --accent: #7fd18a; --warn: #e0a458;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 1em; flex-wrap: wrap;
+    padding: 14px 20px; border-bottom: 1px solid var(--line);
+  }
+  h1 { font-size: 15px; margin: 0; letter-spacing: 0.04em; color: var(--accent); }
+  #cmd { color: var(--dim); font-size: 12px; }
+  #state { margin-left: auto; font-size: 12px; }
+  .on  { color: var(--accent); }
+  .off { color: var(--warn); }
+  main { display: grid; grid-template-columns: 1fr 320px; gap: 16px; padding: 16px 20px; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    padding: 12px 14px;
+  }
+  .card .k { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .card .v { font-size: 22px; margin-top: 4px; }
+  .v small { font-size: 12px; color: var(--dim); }
+  #log {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    padding: 12px 14px; height: 420px; overflow-y: auto; white-space: pre;
+    font-size: 12.5px; margin: 0;
+  }
+  #runs a { color: var(--accent); text-decoration: none; display: block; padding: 3px 0; }
+  #runs a:hover { text-decoration: underline; }
+  #runs .name { color: var(--text); }
+  .section { color: var(--dim); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.08em; margin: 0 0 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>fftb-trainer-v4</h1>
+  <span id="cmd"></span>
+  <span id="state" class="off">connecting…</span>
+</header>
+<main>
+  <section>
+    <p class="section">Run</p>
+    <div class="stats">
+      <div class="card"><div class="k">Generation</div><div class="v" id="gen">–</div></div>
+      <div class="card"><div class="k">Best fitness</div><div class="v" id="best">–</div></div>
+      <div class="card"><div class="k">Elapsed</div><div class="v" id="elapsed">–</div></div>
+      <div class="card"><div class="k">Population</div><div class="v" id="pop">–</div></div>
+      <div class="card"><div class="k">Seed</div><div class="v" id="seed">–</div></div>
+    </div>
+    <p class="section" style="margin-top:16px">Log tail</p>
+    <pre id="log"></pre>
+  </section>
+  <section>
+    <p class="section">Runs</p>
+    <div class="card" id="runs"><span style="color:var(--dim)">loading…</span></div>
+  </section>
+</main>
+<script>
+(function () {
+  var token = new URLSearchParams(location.search).get("token") || "";
+  var q = token ? "?token=" + encodeURIComponent(token) : "";
+  var $ = function (id) { return document.getElementById(id); };
+
+  function fmtElapsed(ms) {
+    var m = Math.floor(ms / 60000), h = Math.floor(m / 60);
+    return h > 0 ? h + "h " + (m % 60) + "m" : m + "m " + Math.floor(ms / 1000 % 60) + "s";
+  }
+  function fmtBest(v) {
+    return v === 0 ? "–" : (v < 0 ? "−" : "") + Math.abs(v).toLocaleString(undefined,
+      { maximumFractionDigits: 0 });
+  }
+
+  var lastLogLength = -1;
+  function pollStatus() {
+    fetch("/status" + q).then(function (r) { return r.json(); }).then(function (s) {
+      var state = $("state");
+      state.textContent = s.running ? "● training" : "○ idle / finished";
+      state.className = s.running ? "on" : "off";
+      $("cmd").textContent = s.command || "(no active run)";
+      $("gen").textContent = s.generation;
+      $("best").textContent = fmtBest(s.best_fitness);
+      $("elapsed").textContent = s.elapsed_ms ? fmtElapsed(s.elapsed_ms) : "–";
+      $("pop").textContent = s.population || "–";
+      $("seed").textContent = s.seed || "–";
+      var log = $("log");
+      if (s.last_log_lines.length !== lastLogLength) {
+        lastLogLength = s.last_log_lines.length;
+        log.textContent = s.last_log_lines.join("\n");
+        log.scrollTop = log.scrollHeight;
+      }
+    }).catch(function () {
+      $("state").textContent = "✕ connection lost";
+      $("state").className = "off";
+    });
+  }
+
+  function pollRuns() {
+    fetch("/runs" + q).then(function (r) { return r.json(); }).then(function (data) {
+      var box = $("runs");
+      box.textContent = "";
+      if (!data.runs.length) {
+        box.textContent = "(no runs yet)";
+        return;
+      }
+      data.runs.slice().reverse().forEach(function (name) {
+        var safe = encodeURIComponent(name);
+        var a = document.createElement("a");
+        a.href = "/runs/" + safe + "/report" + q;
+        var label = document.createElement("span");
+        label.className = "name";
+        label.textContent = name;
+        a.appendChild(label);
+        a.appendChild(document.createTextNode("  · report / "));
+        var artifact = document.createElement("a");
+        artifact.href = "/runs/" + safe + "/artifact" + q;
+        artifact.textContent = "artifact";
+        a.appendChild(artifact);
+        a.appendChild(document.createTextNode(" / "));
+        var logLink = document.createElement("a");
+        logLink.href = "/runs/" + safe + "/log" + q;
+        logLink.textContent = "log";
+        a.appendChild(logLink);
+        box.appendChild(a);
+      });
+    }).catch(function () {});
+  }
+
+  pollStatus();
+  pollRuns();
+  setInterval(pollStatus, 1500);
+  setInterval(pollRuns, 5000);
+})();
+</script>
+</body>
+</html>
