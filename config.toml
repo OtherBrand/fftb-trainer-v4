@@ -4,3 +4,8 @@
 data_dir = "../gene-trainer-3/data"
 maps_url = "https://www.fftbattleground.com/fftbg/Maps.txt"
 maps_cache = "data/Maps.txt"
+# Monitoring API / web console (train --serve / serve). Owner-approved LAN
+# bind (Nov 8 2026) so training nodes are watchable from any machine on the
+# home network; token required — pass ?token=... on every request/URL.
+monitor_bind = "0.0.0.0:8388"
+monitor_token = "e47ed848a822"
