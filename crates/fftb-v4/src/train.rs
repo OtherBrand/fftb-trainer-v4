@@ -256,6 +256,14 @@ pub fn run_inner(
 
     std::fs::create_dir_all(&cfg.out_dir)?;
     let checkpoint = cfg.out_dir.join("best-checkpoint.json");
+    // Console-launched runs have no stdout redirect, so the trainer itself
+    // keeps a run log (the /log endpoint falls back to this file; the
+    // launcher scripts' run.log redirect still works alongside).
+    let mut trainer_log = std::fs::File::create(cfg.out_dir.join("trainer.log"))?;
+    let mut note = |log: &mut std::fs::File, msg: &str| {
+        use std::io::Write;
+        let _ = writeln!(log, "{msg}");
+    };
     let evaluator = V4Evaluator { set: &genome_set, train_end, kind: cfg.fitness };
     let engine_cfg = EngineConfig {
         time_limit: Duration::from_secs_f64(cfg.hours * 3600.0),
@@ -311,13 +319,15 @@ pub fn run_inner(
                     eprintln!("checkpoint write failed: {e}");
                 }
                 let _ = std::io::stdout().flush();
-                println!(
+                let line = format!(
                     "gen {:>6} | best {:>14.0} | mean {:>14.0} | {:>5.0}m",
                     stats.generation,
                     stats.best_gil,
                     stats.mean_gil,
                     stats.elapsed.as_secs_f64() / 60.0
                 );
+                println!("{line}");
+                note(&mut trainer_log, &line);
             }
         },
     );
@@ -327,6 +337,13 @@ pub fn run_inner(
         result.generations_run,
         result.best_gil,
         result.best_generation
+    );
+    note(
+        &mut trainer_log,
+        &format!(
+            "done: {} generations, best fitness {:.0} (gen {})",
+            result.generations_run, result.best_gil, result.best_generation
+        ),
     );
     if let Some(status) = &status {
         status.finish();

@@ -371,9 +371,13 @@ pub fn start_server(
                                 .filter(|(k, _)| *k == "tail")
                                 .and_then(|(_, v)| v.parse::<usize>().ok())
                                 .unwrap_or(DEFAULT_LOG_TAIL);
-                            match std::fs::read_to_string(
-                                monitor.runs_dir_path().join(name).join("run.log"),
-                            ) {
+                            // run.log = launcher-redirected stdout; trainer.log
+                            // = the trainer's own log (console-launched runs
+                            // have no redirect — verification caught this).
+                            let base = monitor.runs_dir_path().join(name);
+                            let text = std::fs::read_to_string(base.join("run.log"))
+                                .or_else(|_| std::fs::read_to_string(base.join("trainer.log")));
+                            match text {
                                 Ok(text) => {
                                     let lines: Vec<&str> = text.lines().collect();
                                     let start = lines.len().saturating_sub(tail);
@@ -475,6 +479,10 @@ mod tests {
         assert!(!monitor.status().running, "run should finish");
         assert!(runs_dir.join(&name).join("report.json").exists(), "report written");
         assert!(runs_dir.join(&name).join("winprob-v4.json").exists());
+        assert!(
+            runs_dir.join(&name).join("trainer.log").exists(),
+            "console-launched runs keep their own log"
+        );
 
         // After completion a new run is allowed again, and stop on idle
         // reports false.
