@@ -47,7 +47,12 @@ pub struct RunStatus {
     pub genome_length: usize,
     /// Free system RAM right now (30s cache) — drives the estimator.
     pub available_bytes: u64,
+    /// Meaningful events: run config, dataset summary, ★ new bests,
+    /// milestones, completion. The dashboard's primary log.
     pub last_log_lines: Vec<String>,
+    /// Per-generation telemetry — every generation, no throttle (on
+    /// slow-generation runs each line is minutes apart and precious).
+    pub last_gen_lines: Vec<String>,
 }
 
 impl Default for RunStatus {
@@ -64,6 +69,7 @@ impl Default for RunStatus {
             genome_length: 0,
             available_bytes: 0,
             last_log_lines: Vec::new(),
+            last_gen_lines: Vec::new(),
         }
     }
 }
@@ -105,6 +111,22 @@ impl StatusHandle {
             trimmed.pop_front();
         }
         status.last_log_lines = trimmed.into_iter().collect();
+    }
+
+    /// Per-generation telemetry feed: refreshes the metrics and records the
+    /// line in the generations tail WITHOUT touching the events log.
+    pub fn update_generation(&self, generation: u64, best_fitness: f64, elapsed_ms: u64, line: &str) {
+        let mut status = self.inner.lock().unwrap();
+        status.generation = generation;
+        status.best_fitness = best_fitness;
+        status.elapsed_ms = elapsed_ms;
+        let mut trimmed: VecDeque<String> =
+            status.last_gen_lines.clone().into_iter().collect();
+        trimmed.push_back(line.to_string());
+        while trimmed.len() > MAX_LOG_LINES {
+            trimmed.pop_front();
+        }
+        status.last_gen_lines = trimmed.into_iter().collect();
     }
 
     pub fn set_population(&self, population: usize) {

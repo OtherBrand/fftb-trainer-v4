@@ -82,8 +82,10 @@
       <div class="card"><div class="k">Population</div><div class="v" id="pop">–</div></div>
       <div class="card"><div class="k">Seed</div><div class="v" id="seed">–</div></div>
     </div>
-    <p class="section" style="margin-top:16px">Log tail</p>
+    <p class="section" style="margin-top:16px">Events</p>
     <pre id="log"></pre>
+    <p class="section" style="margin-top:12px">Generations (every one, no throttle)</p>
+    <pre id="gens" style="height:140px; font-size:11.5px; color:var(--dim)"></pre>
   </section>
   <section>
     <p class="section">Controls</p>
@@ -144,6 +146,7 @@
   }
 
   var lastLogLength = -1;
+  var lastGenLength = -1;
   function pollStatus() {
     fetch("/status" + q).then(function (r) { return r.json(); }).then(function (s) {
       var state = $("state");
@@ -169,6 +172,12 @@
         lastLogLength = s.last_log_lines.length;
         log.textContent = s.last_log_lines.join("\n");
         log.scrollTop = log.scrollHeight;
+      }
+      var gens = $("gens");
+      if (s.last_gen_lines && s.last_gen_lines.length !== lastGenLength) {
+        lastGenLength = s.last_gen_lines.length;
+        gens.textContent = s.last_gen_lines.join("\n");
+        gens.scrollTop = gens.scrollHeight;
       }
     }).catch(function () {
       $("state").textContent = "✕ connection lost";

@@ -332,6 +332,9 @@ pub fn run_inner(
     }
     let run_start = Instant::now();
     let mut last_write = Instant::now() - Duration::from_secs(10);
+    // New-best tracking for event logging (engine reports the running best;
+    // improvements are the events worth surfacing above the telemetry).
+    let mut best_announced = f64::NEG_INFINITY;
     let set_for_cb = &set;
     let result = engine::run(
         &mut population,
@@ -339,22 +342,52 @@ pub fn run_inner(
         &engine_cfg,
         &mut rng,
         |stats, best| {
-            if last_write.elapsed() >= Duration::from_secs(5) {
-                last_write = Instant::now();
-                if let Some(status) = &status {
-                    status.update(
+            let line = format!(
+                "gen {:>6} | best {:>14.0} | mean {:>14.0} | {:>5.0}m",
+                stats.generation,
+                stats.best_gil,
+                stats.mean_gil,
+                stats.elapsed.as_secs_f64() / 60.0
+            );
+            // Every generation lands in the dashboard's generations tail —
+            // on slow-generation runs (laptop, big populations) each line
+            // is minutes apart and users watch for exactly this.
+            if let Some(handle) = &status {
+                handle.update_generation(
+                    stats.generation,
+                    stats.best_gil,
+                    stats.elapsed.as_millis() as u64,
+                    &line,
+                );
+            }
+            // Events (unthrottled, above the telemetry): new bests and
+            // every-1000-generation milestones.
+            let new_best = stats.best_gil > best_announced;
+            let milestone = stats.generation > 0 && stats.generation % 1000 == 0;
+            if new_best {
+                best_announced = stats.best_gil;
+                if let Some(handle) = &status {
+                    handle.update(
                         stats.generation,
                         stats.best_gil,
                         stats.elapsed.as_millis() as u64,
-                        &format!(
-                            "gen {:>6} | best {:>14.0} | mean {:>14.0} | {:>5.0}m",
-                            stats.generation,
-                            stats.best_gil,
-                            stats.mean_gil,
-                            stats.elapsed.as_secs_f64() / 60.0
-                        ),
+                        &format!("★ new best {:.0} at generation {}", stats.best_gil, stats.generation),
                     );
                 }
+            } else if milestone {
+                if let Some(handle) = &status {
+                    handle.update(
+                        stats.generation,
+                        stats.best_gil,
+                        stats.elapsed.as_millis() as u64,
+                        &format!("◆ generation {} | best {:.0}", stats.generation, stats.best_gil),
+                    );
+                }
+            }
+            if last_write.elapsed() >= Duration::from_secs(5) {
+                last_write = Instant::now();
+                println!("{}{}", if new_best { "★ " } else { "" }, line);
+                note(&mut trainer_log, &format!("{}{}", if new_best { "★ " } else { "" }, line));
                 let weights: Vec<f32> = translate.iter().map(|&g| best[g as usize]).collect();
                 let checkpoint_json = serde_json::json!({
                     "generation": stats.generation,
@@ -371,15 +404,6 @@ pub fn run_inner(
                     eprintln!("checkpoint write failed: {e}");
                 }
                 let _ = std::io::stdout().flush();
-                let line = format!(
-                    "gen {:>6} | best {:>14.0} | mean {:>14.0} | {:>5.0}m",
-                    stats.generation,
-                    stats.best_gil,
-                    stats.mean_gil,
-                    stats.elapsed.as_secs_f64() / 60.0
-                );
-                println!("{line}");
-                note(&mut trainer_log, &line);
             }
         },
     );
