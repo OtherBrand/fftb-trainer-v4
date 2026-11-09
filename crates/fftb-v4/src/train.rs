@@ -209,7 +209,7 @@ pub fn run_inner(
         );
     }
 
-    let set = TrainingSet::from_matches(&matches);
+    let set = std::sync::Arc::new(TrainingSet::from_matches(&matches));
     // Honor a stop requested during the (minutes-long) dataset build:
     // bail before the GA allocates and burns any further compute.
     if cfg
@@ -312,6 +312,51 @@ pub fn run_inner(
         let _ = writeln!(log, "{msg}");
     };
     let evaluator = V4Evaluator { set: &genome_set, train_end, kind: cfg.fitness };
+
+    // Holdout watcher (V3's best-bar analog, V4 flavor): every 5 minutes,
+    // evaluate the best checkpoint's holdout ACCURACY (temperature-free)
+    // and publish it — the dashboard draws the climb against the market
+    // and the V3 gate. Exits when the checkpoint stops advancing.
+    if let Some(handle) = &status {
+        let watch_set = std::sync::Arc::clone(&set);
+        let watch_status = handle.clone();
+        let watch_checkpoint = checkpoint.clone();
+        std::thread::spawn(move || {
+            let mut last_generation = u64::MAX;
+            let mut stale_checks = 0;
+            loop {
+                std::thread::sleep(Duration::from_secs(300));
+                let Ok(text) = std::fs::read_to_string(&watch_checkpoint) else { continue };
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+                let generation = value["generation"].as_u64().unwrap_or(0);
+                if generation == last_generation {
+                    stale_checks += 1;
+                    if stale_checks >= 3 {
+                        return; // run finished or stopped writing
+                    }
+                    continue;
+                }
+                stale_checks = 0;
+                last_generation = generation;
+                let Some(weights_json) = value["weights"].as_array() else { continue };
+                let weights: Vec<f32> = weights_json
+                    .iter()
+                    .filter_map(|w| w.as_f64().map(|x| x as f32))
+                    .collect();
+                if weights.len() != watch_set.names.len() {
+                    continue;
+                }
+                let accuracy = watch_set.accuracy_range(&weights, train_end..total);
+                watch_status.set_holdout_accuracy(accuracy);
+                watch_status.update(
+                    generation,
+                    0.0,
+                    0,
+                    &format!("◦ holdout accuracy {accuracy:.4} at gen {generation}"),
+                );
+            }
+        });
+    }
     let engine_cfg = EngineConfig {
         // hours <= 0 means run indefinitely (stop button / manual kill).
         time_limit: if cfg.hours > 0.0 {
@@ -356,6 +401,7 @@ pub fn run_inner(
                 handle.update_generation(
                     stats.generation,
                     stats.best_gil,
+                    stats.mean_gil,
                     stats.elapsed.as_millis() as u64,
                     &line,
                 );

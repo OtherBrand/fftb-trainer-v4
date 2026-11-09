@@ -39,6 +39,7 @@ pub struct RunStatus {
     pub command: String,
     pub generation: u64,
     pub best_fitness: f64,
+    pub mean_fitness: f64,
     pub elapsed_ms: u64,
     pub population: usize,
     pub seed: u64,
@@ -52,6 +53,10 @@ pub struct RunStatus {
     pub cpu_percent: f64,
     /// Trainer process working set.
     pub process_memory_bytes: u64,
+    /// Live holdout accuracy of the best checkpoint (temperature-free),
+    /// evaluated periodically by the trainer's watcher thread. None until
+    /// the first evaluation lands.
+    pub holdout_accuracy: Option<f64>,
     /// Meaningful events: run config, dataset summary, ★ new bests,
     /// milestones, completion. The dashboard's primary log.
     pub last_log_lines: Vec<String>,
@@ -68,6 +73,7 @@ impl Default for RunStatus {
             command: String::new(),
             generation: 0,
             best_fitness: 0.0,
+            mean_fitness: 0.0,
             elapsed_ms: 0,
             population: 0,
             seed: 0,
@@ -75,6 +81,7 @@ impl Default for RunStatus {
             available_bytes: 0,
             cpu_percent: 0.0,
             process_memory_bytes: 0,
+            holdout_accuracy: None,
             last_log_lines: Vec::new(),
             last_gen_lines: Vec::new(),
         }
@@ -122,10 +129,18 @@ impl StatusHandle {
 
     /// Per-generation telemetry feed: refreshes the metrics and records the
     /// line in the generations tail WITHOUT touching the events log.
-    pub fn update_generation(&self, generation: u64, best_fitness: f64, elapsed_ms: u64, line: &str) {
+    pub fn update_generation(
+        &self,
+        generation: u64,
+        best_fitness: f64,
+        mean_fitness: f64,
+        elapsed_ms: u64,
+        line: &str,
+    ) {
         let mut status = self.inner.lock().unwrap();
         status.generation = generation;
         status.best_fitness = best_fitness;
+        status.mean_fitness = mean_fitness;
         status.elapsed_ms = elapsed_ms;
         let mut trimmed: VecDeque<String> =
             status.last_gen_lines.clone().into_iter().collect();
@@ -142,6 +157,10 @@ impl StatusHandle {
 
     pub fn set_genome_length(&self, genome_length: usize) {
         self.inner.lock().unwrap().genome_length = genome_length;
+    }
+
+    pub fn set_holdout_accuracy(&self, accuracy: f64) {
+        self.inner.lock().unwrap().holdout_accuracy = Some(accuracy);
     }
 
     pub fn finish(&self) {

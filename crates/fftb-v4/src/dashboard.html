@@ -81,8 +81,22 @@
       <div class="card"><div class="k">Elapsed</div><div class="v" id="elapsed">–</div></div>
       <div class="card"><div class="k">Population</div><div class="v" id="pop">–</div></div>
       <div class="card"><div class="k">Seed</div><div class="v" id="seed">–</div></div>
+      <div class="card"><div class="k">Mean fitness</div><div class="v" id="mean">–</div></div>
+      <div class="card"><div class="k">Pace <small>gens/h</small></div><div class="v" id="pace">–</div></div>
       <div class="card"><div class="k">CPU <small>(all cores)</small></div><div class="v" id="cpu">–</div></div>
       <div class="card"><div class="k">Process RAM</div><div class="v" id="pram">–</div></div>
+    </div>
+    <p class="section" style="margin-top:16px">Holdout accuracy (live, every 5 min)</p>
+    <div class="card">
+      <div style="position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; height: 22px; overflow: hidden">
+        <div id="acc-bar" style="position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: var(--accent); opacity: 0.75; transition: width 1s"></div>
+        <div id="acc-market" style="position: absolute; top: 0; bottom: 0; width: 2px; background: var(--warn); left: 60.56%" title="market 60.56%"></div>
+        <div id="acc-gate" style="position: absolute; top: 0; bottom: 0; width: 2px; background: #d66; left: 63.01%" title="V3 gate 63.01%"></div>
+      </div>
+      <div style="display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; margin-top: 4px">
+        <span>0%</span><span id="acc-text">waiting for first evaluation…</span>
+        <span>market 60.6 · gate 63.0</span>
+      </div>
     </div>
     <p class="section" style="margin-top:16px">Events</p>
     <pre id="log"></pre>
@@ -166,6 +180,14 @@
       $("seed").textContent = s.seed || "–";
       $("cpu").textContent = s.cpu_percent != null ? s.cpu_percent.toFixed(1) + "%" : "–";
       $("pram").textContent = s.process_memory_bytes ? fmtBytes(s.process_memory_bytes) : "–";
+      $("mean").textContent = s.mean_fitness ? s.mean_fitness.toLocaleString(undefined, { maximumFractionDigits: 0 }) : "–";
+      var hours = s.elapsed_ms / 3600000;
+      $("pace").textContent = hours > 0.01 && s.generation > 0
+        ? Math.round(s.generation / hours).toLocaleString() : "–";
+      if (s.holdout_accuracy != null) {
+        $("acc-bar").style.width = Math.min(100, s.holdout_accuracy * 100) + "%";
+        $("acc-text").textContent = (s.holdout_accuracy * 100).toFixed(2) + "%";
+      }
       if (s.available_bytes) {
         lastMemory.available = s.available_bytes;
         if (s.genome_length) lastMemory.genes = s.genome_length;
