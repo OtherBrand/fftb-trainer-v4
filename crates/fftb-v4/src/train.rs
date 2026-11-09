@@ -277,10 +277,13 @@ pub fn run_inner(
         for (s, source) in seed_sources.iter().enumerate() {
             let (matched, clamped, unmatched) =
                 population.seed_genome_by_name(s, &source.values, &genome);
-            println!(
-                "seed[{}] {} -> genome {s}: {matched} matched, {clamped} clamped, {unmatched} unmatched",
-                cfg.seeds[s].display(),
-                source.label
+            announce(
+                &status,
+                format!(
+                    "seed[{}] {} -> genome {s}: {matched} matched, {clamped} clamped, {unmatched} unmatched",
+                    cfg.seeds[s].display(),
+                    source.label
+                ),
             );
         }
         let variants = (pop_size / 10).saturating_sub(seed_sources.len());

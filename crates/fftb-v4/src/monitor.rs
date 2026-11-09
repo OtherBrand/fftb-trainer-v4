@@ -57,6 +57,14 @@ pub struct RunStatus {
     /// evaluated periodically by the trainer's watcher thread. None until
     /// the first evaluation lands.
     pub holdout_accuracy: Option<f64>,
+    /// Full accuracy trajectory [generation, accuracy] (capped 500) — the
+    /// events log rolls off after 50 lines; a multi-day run's slope story
+    /// needs the whole curve.
+    pub holdout_history: Vec<(u64, f64)>,
+    /// Wall-clock ms (epoch) of the last generation or event — lets a
+    /// remote watcher distinguish "healthy slow generation" from "wedged"
+    /// without a CPU card.
+    pub last_activity_ms: u64,
     /// Meaningful events: run config, dataset summary, ★ new bests,
     /// milestones, completion. The dashboard's primary log.
     pub last_log_lines: Vec<String>,
@@ -82,6 +90,8 @@ impl Default for RunStatus {
             cpu_percent: 0.0,
             process_memory_bytes: 0,
             holdout_accuracy: None,
+            holdout_history: Vec::new(),
+            last_activity_ms: 0,
             last_log_lines: Vec::new(),
             last_gen_lines: Vec::new(),
         }
@@ -91,6 +101,8 @@ impl Default for RunStatus {
 #[derive(Clone)]
 pub struct StatusHandle {
     inner: Arc<Mutex<RunStatus>>,
+    accuracy_history: Arc<Mutex<VecDeque<(u64, f64)>>>,
+    last_activity: Arc<Mutex<std::time::Instant>>,
 }
 
 impl StatusHandle {
@@ -103,6 +115,8 @@ impl StatusHandle {
                 seed,
                 ..RunStatus::default()
             })),
+            accuracy_history: Arc::new(Mutex::new(VecDeque::new())),
+            last_activity: Arc::new(Mutex::new(std::time::Instant::now())),
         }
     }
 
@@ -110,10 +124,17 @@ impl StatusHandle {
     pub fn idle() -> Self {
         Self {
             inner: Arc::new(Mutex::new(RunStatus::default())),
+            accuracy_history: Arc::new(Mutex::new(VecDeque::new())),
+            last_activity: Arc::new(Mutex::new(std::time::Instant::now())),
         }
     }
 
+    fn touch_activity(&self) {
+        *self.last_activity.lock().unwrap() = std::time::Instant::now();
+    }
+
     pub fn update(&self, generation: u64, best_fitness: f64, elapsed_ms: u64, line: &str) {
+        self.touch_activity();
         let mut status = self.inner.lock().unwrap();
         status.generation = generation;
         status.best_fitness = best_fitness;
@@ -137,6 +158,7 @@ impl StatusHandle {
         elapsed_ms: u64,
         line: &str,
     ) {
+        self.touch_activity();
         let mut status = self.inner.lock().unwrap();
         status.generation = generation;
         status.best_fitness = best_fitness;
@@ -160,7 +182,13 @@ impl StatusHandle {
     }
 
     pub fn set_holdout_accuracy(&self, accuracy: f64) {
+        let generation = self.inner.lock().unwrap().generation;
         self.inner.lock().unwrap().holdout_accuracy = Some(accuracy);
+        let mut history = self.accuracy_history.lock().unwrap();
+        history.push_back((generation, accuracy));
+        while history.len() > 500 {
+            history.pop_front();
+        }
     }
 
     pub fn finish(&self) {
@@ -168,7 +196,15 @@ impl StatusHandle {
     }
 
     pub fn snapshot(&self) -> RunStatus {
-        self.inner.lock().unwrap().clone()
+        let mut snapshot = self.inner.lock().unwrap().clone();
+        snapshot.holdout_history =
+            self.accuracy_history.lock().unwrap().iter().copied().collect();
+        snapshot.last_activity_ms = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0))
+            - self.last_activity.lock().unwrap().elapsed().as_millis() as u64;
+        snapshot
     }
 }
 
@@ -622,6 +658,14 @@ pub fn start_server(
                     match segments.as_slice() {
                         ["runs", name, "report"] if safe_name(name) => {
                             file_or_404(monitor.runs_dir_path().join(name).join("report.json"))
+                        }
+                        ["runs", name, "checkpoint"] if safe_name(name) => {
+                            // The live best genome — lets a remote watcher
+                            // pull it and evaluate against a full holdout
+                            // elsewhere (the big-machine monitoring play).
+                            file_or_404(
+                                monitor.runs_dir_path().join(name).join("best-checkpoint.json"),
+                            )
                         }
                         ["runs", name, "artifact"] if safe_name(name) => {
                             file_or_404(monitor.runs_dir_path().join(name).join("winprob-v4.json"))

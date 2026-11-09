@@ -97,6 +97,7 @@
         <span>0%</span><span id="acc-text">waiting for first evaluation…</span>
         <span>market 60.6 · gate 63.0</span>
       </div>
+      <div id="acc-spark" style="display: flex; align-items: flex-end; gap: 1px; height: 34px; margin-top: 6px"></div>
     </div>
     <p class="section" style="margin-top:16px">Events</p>
     <pre id="log"></pre>
@@ -189,6 +190,22 @@
       if (s.holdout_accuracy != null) {
         $("acc-bar").style.width = Math.min(100, s.holdout_accuracy * 100) + "%";
         $("acc-text").textContent = (s.holdout_accuracy * 100).toFixed(2) + "%";
+      }
+      var spark = $("acc-spark");
+      if (s.holdout_history && s.holdout_history.length > 1) {
+        var accs = s.holdout_history.map(function (h) { return h[1]; });
+        var lo = Math.min.apply(null, accs), hi = Math.max.apply(null, accs);
+        if (hi - lo < 0.002) { lo -= 0.001; hi += 0.001; }
+        spark.textContent = "";
+        accs.slice(-120).forEach(function (a) {
+          var bar = document.createElement("div");
+          bar.style.flex = "1";
+          bar.style.height = Math.max(6, (a - lo) / (hi - lo) * 34) + "px";
+          bar.style.background = "var(--accent)";
+          bar.style.opacity = "0.65";
+          bar.title = (a * 100).toFixed(2) + "%";
+          spark.appendChild(bar);
+        });
       }
       if (s.available_bytes) {
         lastMemory.available = s.available_bytes;
