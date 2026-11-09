@@ -311,7 +311,7 @@ checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 [[package]]
 name = "fftb-botland"
 version = "0.1.0"
-source = "git+file:///C:/Projects/fftb-trainer-botland?rev=2248e48#2248e48326feb569587228929b14ee3042b0fd59"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=022db5b#022db5ba69a02a54914ed756928a82a288faa2cd"
 dependencies = [
  "anyhow",
  "fftb-core",
@@ -326,7 +326,7 @@ dependencies = [
 [[package]]
 name = "fftb-core"
 version = "0.1.0"
-source = "git+file:///C:/Projects/fftb-trainer-botland?rev=2248e48#2248e48326feb569587228929b14ee3042b0fd59"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=022db5b#022db5ba69a02a54914ed756928a82a288faa2cd"
 dependencies = [
  "serde",
  "serde_json",
@@ -337,7 +337,7 @@ dependencies = [
 [[package]]
 name = "fftb-corpus"
 version = "0.1.0"
-source = "git+file:///C:/Projects/fftb-trainer-botland?rev=2248e48#2248e48326feb569587228929b14ee3042b0fd59"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=022db5b#022db5ba69a02a54914ed756928a82a288faa2cd"
 dependencies = [
  "fftb-core",
  "flate2",
@@ -350,7 +350,7 @@ dependencies = [
 [[package]]
 name = "fftb-ga"
 version = "0.1.0"
-source = "git+file:///C:/Projects/fftb-trainer-botland?rev=2248e48#2248e48326feb569587228929b14ee3042b0fd59"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=022db5b#022db5ba69a02a54914ed756928a82a288faa2cd"
 dependencies = [
  "fftb-core",
  "fftb-sim",
@@ -363,7 +363,7 @@ dependencies = [
 [[package]]
 name = "fftb-sim"
 version = "0.1.0"
-source = "git+file:///C:/Projects/fftb-trainer-botland?rev=2248e48#2248e48326feb569587228929b14ee3042b0fd59"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=022db5b#022db5ba69a02a54914ed756928a82a288faa2cd"
 dependencies = [
  "fftb-core",
 ]
