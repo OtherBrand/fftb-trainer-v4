@@ -91,8 +91,8 @@
       <form onsubmit="return false">
         <div><label for="f-dataset">Dataset</label>
           <select id="f-dataset"><option>deep</option><option>main</option></select></div>
-        <div><label for="f-hours">Hours</label>
-          <input id="f-hours" type="number" step="any" min="0.01" value="72"></div>
+        <div><label for="f-hours">Hours (0 = run indefinitely)</label>
+          <input id="f-hours" type="number" step="any" min="0" value="72"></div>
         <div><label for="f-pop">Population (0 = auto)</label>
           <input id="f-pop" type="number" min="0" value="20000"></div>
         <div><label for="f-seed">RNG seed</label>
@@ -147,8 +147,12 @@
   function pollStatus() {
     fetch("/status" + q).then(function (r) { return r.json(); }).then(function (s) {
       var state = $("state");
-      state.textContent = s.running ? "● training" : "○ idle / finished";
-      state.className = s.running ? "on" : "off";
+      if (s.stop_requested && s.running) {
+        state.textContent = "◍ stopping — finishing current generation";
+      } else {
+        state.textContent = s.running ? "● training" : "○ idle / finished";
+      }
+      state.className = s.running ? (s.stop_requested ? "off" : "on") : "off";
       $("cmd").textContent = s.command || "(no active run)";
       $("gen").textContent = s.generation;
       $("best").textContent = fmtBest(s.best_fitness);
@@ -226,7 +230,7 @@
       .catch(function (e) { $("msg").textContent = "error: " + e; });
   });
   $("stop").addEventListener("click", function () {
-    $("msg").textContent = "requesting stop…";
+    $("msg").textContent = "stop requested — the run finishes its current generation, then calibrates and exports (up to a few minutes on the full corpus)";
     post("/stop").then(function (r) { $("msg").textContent = r.text; });
   });
 
@@ -250,11 +254,17 @@
     $("est-pop").textContent = pop.toLocaleString();
     $("est-avail").textContent = fmtBytes(lastMemory.available);
     $("est-genes").textContent = genes;
+    // Dataset term from the lookback window (matches /estimate's math).
+    var t = parseInt($("f-tournaments").value, 10) || 0;
+    var matches = t > 0 ? t * 8 : 554072;
+    var dataset = matches * 480;
     var bytes = pop * (2 * genes * 4 + 8);
-    $("est-foot").textContent = "peak footprint ≈ " + fmtBytes(bytes) +
-      " (double-buffered) · " + fmtBytes(lastMemory.available * frac) + " of available";
+    $("est-foot").textContent = "population " + fmtBytes(bytes) + " + dataset " +
+      fmtBytes(dataset) + " (" + matches.toLocaleString() + " matches)" +
+      " · dataset build peaks ~" + fmtBytes(dataset + matches * 3000);
   }
   $("frac").addEventListener("input", renderEstimator);
+  $("f-tournaments").addEventListener("input", renderEstimator);
 
   pollStatus();
   pollRuns();

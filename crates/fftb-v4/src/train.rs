@@ -146,22 +146,44 @@ pub fn run_inner(
     });
     anyhow::ensure!(cache_dir.is_dir(), "cache directory {} not found", cache_dir.display());
 
-    println!("building dataset from {} ...", cache_dir.display());
+    // Build-phase progress lands in the console window AND the dashboard's
+    // log tail (the full-corpus load takes minutes; an empty log there made
+    // runs look hung and stops look ignored).
+    let announce = |status: &Option<crate::monitor::StatusHandle>, line: String| {
+        println!("{line}");
+        if let Some(handle) = status {
+            handle.update(0, 0.0, 0, &line);
+        }
+    };
+    announce(
+        &status,
+        format!("building dataset from {} ...", cache_dir.display()),
+    );
+    let progress_status = status.clone();
+    let progress = move |done: usize, total: usize| {
+        if let Some(handle) = &progress_status {
+            handle.update(0, 0.0, 0, &format!("loading tournaments: {done}/{total}"));
+        }
+    };
     let built = if cfg.deep {
         // Gate-comparable: the dedup'd union of both caches (main copies
         // win duplicates), matching fftb-forecast's corpus arithmetic.
         crate::dataset::build_dataset_union(
             &cfg.data_dir.join("tournamentCache"),
             &cfg.data_dir.join("tournamentCacheDeep"),
+            Some(&progress),
         )
     } else {
         build_dataset(&cache_dir)
     };
     anyhow::ensure!(!built.set.is_empty(), "no matches parsed from {}", cache_dir.display());
-    println!(
-        "matches: {} (skipped tournaments: {})",
-        built.set.len(),
-        built.skipped.len()
+    announce(
+        &status,
+        format!(
+            "matches: {} (skipped tournaments: {})",
+            built.set.len(),
+            built.skipped.len()
+        ),
     );
 
     let mut matches = built.set;
@@ -188,6 +210,16 @@ pub fn run_inner(
     }
 
     let set = TrainingSet::from_matches(&matches);
+    // Honor a stop requested during the (minutes-long) dataset build:
+    // bail before the GA allocates and burns any further compute.
+    if cfg
+        .stop_signal
+        .as_ref()
+        .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed))
+    {
+        announce(&status, "stopped during dataset build".into());
+        anyhow::bail!("stopped during dataset build");
+    }
     // The match set is string-heavy (raw token lists per side); the
     // training set is compact CSR. Free the intermediate before the GA
     // starts — on small machines this releases ~1-2 GB for the whole run.
@@ -281,7 +313,12 @@ pub fn run_inner(
     };
     let evaluator = V4Evaluator { set: &genome_set, train_end, kind: cfg.fitness };
     let engine_cfg = EngineConfig {
-        time_limit: Duration::from_secs_f64(cfg.hours * 3600.0),
+        // hours <= 0 means run indefinitely (stop button / manual kill).
+        time_limit: if cfg.hours > 0.0 {
+            Duration::from_secs_f64(cfg.hours * 3600.0)
+        } else {
+            Duration::from_secs(100 * 365 * 24 * 3600)
+        },
         stop_signal: cfg.stop_signal.clone(),
         ..EngineConfig::v2_defaults()
     };

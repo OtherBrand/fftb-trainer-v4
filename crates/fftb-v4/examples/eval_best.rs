@@ -42,6 +42,7 @@ fn main() -> anyhow::Result<()> {
     let built = build_dataset_union(
         &data_dir.join("tournamentCache"),
         &data_dir.join("tournamentCacheDeep"),
+        None,
     );
     let set = TrainingSet::from_matches(&built.set);
     let total = set.len();

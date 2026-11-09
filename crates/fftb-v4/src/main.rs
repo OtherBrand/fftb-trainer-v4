@@ -80,6 +80,14 @@ enum Command {
     Serve,
 }
 
+/// Open the default browser (Windows). Best-effort; a missing browser
+/// association must never kill the trainer.
+fn open_browser(url: &str) {
+    let _ = std::process::Command::new("cmd")
+        .args(["/C", "start", "", url])
+        .spawn();
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let root = std::env::current_dir()?;
@@ -236,11 +244,14 @@ fn main() -> anyhow::Result<()> {
             ));
             let token = (!config.monitor_token.is_empty()).then(|| config.monitor_token.clone());
             let (_, addr) =
-                fftb_v4::monitor::start_server(monitor, token, &config.monitor_bind)?;
-            println!(
-                "console on http://{} — browser can start, watch, and stop runs",
-                addr
-            );
+                fftb_v4::monitor::start_server(monitor, token.clone(), &config.monitor_bind)?;
+            let display_addr = addr.trim_start_matches("0.0.0.0");
+            println!("console on http://{display_addr} — browser can start, watch, and stop runs");
+            open_browser(&format!(
+                "http://127.0.0.1{}/{}",
+                display_addr.trim_start_matches("127.0.0.1"),
+                token.map(|t| format!("?token={t}")).unwrap_or_default()
+            ));
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(3600));
             }

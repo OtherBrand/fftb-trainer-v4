@@ -33,6 +33,9 @@ const MAX_LOG_LINES: usize = 50;
 #[derive(Debug, Clone, Serialize)]
 pub struct RunStatus {
     pub running: bool,
+    /// True when a stop has been requested but the run is still finishing
+    /// (dataset build or current generation).
+    pub stop_requested: bool,
     pub command: String,
     pub generation: u64,
     pub best_fitness: f64,
@@ -51,6 +54,7 @@ impl Default for RunStatus {
     fn default() -> Self {
         Self {
             running: false,
+            stop_requested: false,
             command: String::new(),
             generation: 0,
             best_fitness: 0.0,
@@ -198,6 +202,12 @@ impl Monitor {
     pub fn status(&self) -> RunStatus {
         let mut snapshot = self.status.lock().unwrap().snapshot();
         snapshot.available_bytes = self.available_bytes_cached();
+        snapshot.stop_requested = self
+            .active
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|run| run.stop.load(Ordering::Relaxed));
         snapshot
     }
 
@@ -388,8 +398,23 @@ pub fn start_server(
                         if known > 0 { known } else { 1260 }
                     };
                     let fraction = query_param("fraction").unwrap_or(0.7).clamp(0.05, 0.95);
+                    // Tournament window: rows and dataset memory scale with
+                    // the lookback; the genome length stays the full-corpus
+                    // vocabulary (conservative — windowed genomes are
+                    // shorter). 8 matches per tournament.
+                    const FULL_CORPUS_MATCHES: usize = 554_072;
+                    const ROW_BYTES: u64 = 480;
+                    const BUILD_TRANSIENT_BYTES_PER_MATCH: u64 = 3_000;
+                    let tournaments = query_param("tournaments").unwrap_or(0.0).max(0.0) as usize;
+                    let matches = if tournaments > 0 {
+                        tournaments.saturating_mul(8)
+                    } else {
+                        FULL_CORPUS_MATCHES
+                    };
+                    let dataset_bytes = matches as u64 * ROW_BYTES;
+                    let build_transient = matches as u64 * BUILD_TRANSIENT_BYTES_PER_MATCH;
                     let suggested = fftb_ga::population::population_for_memory(
-                        available,
+                        available.saturating_sub(dataset_bytes),
                         genome_length,
                         fraction,
                     );
@@ -397,16 +422,26 @@ pub fn start_server(
                         "available_bytes": available,
                         "genome_length": genome_length,
                         "fraction": fraction,
+                        "tournaments": tournaments,
+                        "matches": matches,
+                        "dataset_bytes": dataset_bytes,
                         "suggested_population": suggested,
                         "footprint_per_genome_bytes": genome_length * 8 + 8,
                     });
                     if let Some(pop) = query_param("population") {
                         let pop = pop.max(0.0) as usize;
-                        let bytes = pop as u64 * (genome_length as u64 * 8 + 8);
+                        let population_bytes = pop as u64 * (genome_length as u64 * 8 + 8);
+                        // Two lifecycle peaks: build (dataset + transient,
+                        // before the population allocates) and training
+                        // (dataset + population, after the transient drops).
+                        let build_peak = dataset_bytes + build_transient;
+                        let training_peak = dataset_bytes + population_bytes;
+                        let peak = build_peak.max(training_peak);
                         payload["population"] = serde_json::json!(pop);
-                        payload["population_bytes"] = serde_json::json!(bytes);
-                        payload["fits"] = serde_json::json!(bytes as f64
-                            <= available as f64 * fraction);
+                        payload["population_bytes"] = serde_json::json!(population_bytes);
+                        payload["peak_bytes"] = serde_json::json!(peak);
+                        payload["fits"] =
+                            serde_json::json!(peak as f64 <= available as f64 * fraction);
                     }
                     json_response(&payload)
                 }

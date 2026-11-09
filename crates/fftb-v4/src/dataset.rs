@@ -123,6 +123,13 @@ pub fn matches_from_entry(entry: &MatchCacheEntry) -> anyhow::Result<Vec<MatchLi
 /// skip-listing structurally invalid tournaments with their reasons
 /// (V1 crashed on these; V4 reports them).
 pub fn build_dataset(cache_dir: &std::path::Path) -> DatasetResult {
+    build_dataset_progress(cache_dir, None)
+}
+
+pub fn build_dataset_progress(
+    cache_dir: &std::path::Path,
+    progress: Option<ProgressFn>,
+) -> DatasetResult {
     let mut set = MatchSetLite::default();
     let mut skipped: HashMap<String, String> = HashMap::new();
     let mut entries = Vec::new();
@@ -134,8 +141,10 @@ pub fn build_dataset(cache_dir: &std::path::Path) -> DatasetResult {
             }
         }
     }
+    let total = entries.len();
+    let mut last_emit = 0usize;
     entries.sort();
-    for path in entries {
+    for (done, path) in entries.into_iter().enumerate() {
         match MatchCacheEntry::read(&path) {
             Ok(entry) => match matches_from_entry(&entry) {
                 Ok(mut matches) => set.matches.append(&mut matches),
@@ -153,6 +162,7 @@ pub fn build_dataset(cache_dir: &std::path::Path) -> DatasetResult {
                 );
             }
         }
+        emit_progress(done + 1, total, &mut last_emit, progress);
     }
     DatasetResult {
         set: set.sorted_chronologically(),
@@ -183,13 +193,33 @@ pub fn keep_newest_tournaments(matches: &mut Vec<crate::seam::MatchLite>, n: usi
     matches.retain(|m| newest.contains(&m.tournament_id));
 }
 
+/// Progress callback for the (minutes-long, full-corpus) cache load:
+/// `done` of `total` .gz files parsed. Called at most every ~2k files.
+pub type ProgressFn<'a> = &'a dyn Fn(usize, usize);
+
+fn emit_progress(done: usize, total: usize, last: &mut usize, progress: Option<ProgressFn>) {
+    if done - *last >= 2_000 || done == total {
+        *last = done;
+        if let Some(cb) = progress {
+            cb(done, total);
+        }
+    }
+}
+
 /// Build the gate-comparable corpus: the UNION of both caches, deduplicated
 /// by tournament id (main-cache copy preferred — bet-covered and richer),
 /// chronologically ordered. Mirrors fftb-forecast's dual-cache arithmetic
 /// (553,450 matches from 69,207 unique tournaments, Nov 4 2026 reference).
-pub fn build_dataset_union(main_dir: &std::path::Path, deep_dir: &std::path::Path) -> DatasetResult {
+pub fn build_dataset_union(
+    main_dir: &std::path::Path,
+    deep_dir: &std::path::Path,
+    progress: Option<ProgressFn>,
+) -> DatasetResult {
     let mut by_id: std::collections::BTreeMap<i64, Vec<MatchLite>> = std::collections::BTreeMap::new();
     let mut skipped: HashMap<String, String> = HashMap::new();
+    let mut total = 0usize;
+    let mut done = 0usize;
+    let mut last_emit = 0usize;
     // Main cache first so its copies win the dedup; deep fills the gaps.
     for dir in [main_dir, deep_dir] {
         let mut paths: Vec<std::path::PathBuf> = match std::fs::read_dir(dir) {
@@ -203,6 +233,7 @@ pub fn build_dataset_union(main_dir: &std::path::Path, deep_dir: &std::path::Pat
                 continue;
             }
         };
+        total += paths.len();
         paths.sort();
         for path in paths {
             let entry = match crate::cache::MatchCacheEntry::read(&path) {
@@ -224,6 +255,8 @@ pub fn build_dataset_union(main_dir: &std::path::Path, deep_dir: &std::path::Pat
                         .or_insert_with(|| e.to_string());
                 }
             }
+            done += 1;
+            emit_progress(done, total, &mut last_emit, progress);
         }
     }
     let mut set = MatchSetLite::default();
