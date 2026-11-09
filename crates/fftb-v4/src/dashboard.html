@@ -144,6 +144,8 @@
     </div>
     <p class="section" style="margin-top:16px">Runs</p>
     <div class="card" id="runs"><span style="color:var(--dim)">loading…</span></div>
+    <p class="section" style="margin-top:16px">Botland <span id="bl-meta" style="text-transform:none"></span></p>
+    <div class="card" id="botland" style="font-size:12px; max-height:420px; overflow-y:auto"><span style="color:var(--dim)">loading…</span></div>
   </section>
 </main>
 <script>
@@ -301,10 +303,51 @@
   $("frac").addEventListener("input", renderEstimator);
   $("f-tournaments").addEventListener("input", renderEstimator);
 
+  function pollBotland() {
+    fetch("/botland" + q).then(function (r) {
+      if (r.status === 503) { $("botland").textContent = "computing — first request builds the leaderboard over the newest 1,000 tournaments…"; return null; }
+      return r.json();
+    }).then(function (b) {
+      if (!b) return;
+      var box = $("botland");
+      box.textContent = "";
+      $("bl-meta").textContent = "· " + b.tournaments + " tournaments / " + b.matches + " matches" +
+        (b.v4_beats_inverse === true ? " · V4 beats its inverse ✓"
+          : b.v4_beats_inverse === false ? " · INVERSE WINS — champion rule not met" : "");
+      var table = document.createElement("table");
+      table.style.width = "100%";
+      table.style.borderCollapse = "collapse";
+      var head = table.insertRow();
+      ["bot", "gil", "acc", "W/L", "sat"].forEach(function (h, i) {
+        var c = head.insertCell();
+        c.textContent = h;
+        c.style.color = "var(--dim)";
+        c.style.fontSize = "10.5px";
+        c.style.textAlign = i === 0 ? "left" : "right";
+        c.style.padding = "2px 4px";
+      });
+      b.rows.slice(0, 25).forEach(function (row) {
+        var tr = table.insertRow();
+        [row.name, Math.round(row.gil).toLocaleString(),
+         (row.accuracy * 100).toFixed(1) + "%",
+         row.correct + "/" + row.wrong, row.sat_out].forEach(function (v, i) {
+          var c = tr.insertCell();
+          c.textContent = v;
+          c.style.textAlign = i === 0 ? "left" : "right";
+          c.style.padding = "2px 4px";
+          if (row.name.indexOf("genebotV4") === 0) c.style.color = "var(--accent)";
+        });
+      });
+      box.appendChild(table);
+    }).catch(function () {});
+  }
+
   pollStatus();
   pollRuns();
+  pollBotland();
   setInterval(pollStatus, 1500);
   setInterval(pollRuns, 5000);
+  setInterval(pollBotland, 120000);
 })();
 </script>
 </body>

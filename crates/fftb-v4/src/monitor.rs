@@ -222,6 +222,9 @@ pub struct Monitor {
     config: crate::config::V4Config,
     status: Mutex<StatusHandle>,
     active: Mutex<Option<ActiveRun>>,
+    /// Cached console botland leaderboard (computed once; ?refresh=1).
+    botland: Mutex<Option<crate::botland::BotlandJson>>,
+    botland_computing: std::sync::atomic::AtomicBool,
     /// Available-RAM cache (the probe spawns PowerShell; polled status
     /// should not). TTL 30s.
     memory_cache: Mutex<(std::time::Instant, u64)>,
@@ -266,6 +269,8 @@ impl Monitor {
             config,
             status: Mutex::new(StatusHandle::idle()),
             active: Mutex::new(None),
+            botland: Mutex::new(None),
+            botland_computing: std::sync::atomic::AtomicBool::new(false),
             memory_cache: Mutex::new((
                 std::time::Instant::now() - std::time::Duration::from_secs(3600),
                 0,
@@ -569,6 +574,23 @@ pub fn start_server(
                 (tiny_http::Method::Get, "runs") => {
                     json_response(&serde_json::json!({ "runs": monitor.runs_list() }))
                 }
+                (tiny_http::Method::Get, "botland") => {
+                    let refresh = query.contains("refresh=1");
+                    match monitor.botland_begin(refresh) {
+                        Some(json) => json_response(&json),
+                        None => tiny_http::Response::from_string(
+                            "{\"computing\": true}".to_string(),
+                        )
+                        .with_status_code(503)
+                        .with_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Type"[..],
+                                &b"application/json"[..],
+                            )
+                            .unwrap(),
+                        ),
+                    }
+                }
                 (tiny_http::Method::Post, "stop") => {
                     let stopped = monitor.stop_run();
                     json_response(&serde_json::json!({ "stop_requested": stopped }))
@@ -640,6 +662,61 @@ pub fn start_server(
 impl Monitor {
     fn runs_dir_path(&self) -> &Path {
         &self.runs_dir
+    }
+
+    /// Cached leaderboard if computed.
+    pub fn botland_cached(&self) -> Option<crate::botland::BotlandJson> {
+        self.botland.lock().unwrap().clone()
+    }
+
+    /// GET /botland handler (V3's api_botland pattern): serve the cache,
+    /// or kick a background compute over the newest 1000 tournaments.
+    /// Returns None while the first compute runs.
+    pub fn botland_begin(self: &Arc<Self>, refresh: bool) -> Option<crate::botland::BotlandJson> {
+        if refresh {
+            *self.botland.lock().unwrap() = None;
+        }
+        if let Some(json) = self.botland_cached() {
+            return Some(json);
+        }
+        if !self.botland_computing.swap(true, Ordering::SeqCst) {
+            let this = Arc::clone(self);
+            std::thread::spawn(move || {
+                let result = (|| {
+                    let entries = crate::botland::newest_entries(
+                        &this.config.data_dir.join("tournamentCache"),
+                        &this.config.data_dir.join("tournamentCacheDeep"),
+                        1000,
+                    )?;
+                    let roster_xml =
+                        std::fs::read_to_string(this.config.data_dir.join("Botland.xml"))?;
+                    let gene_dirs = vec![this.config.data_dir.join("GeneFiles")];
+                    let weights =
+                        crate::botland::newest_checkpoint_weights(&this.runs_dir);
+                    crate::botland::compute_baseline(
+                        &entries,
+                        &roster_xml,
+                        &gene_dirs,
+                        weights.as_ref(),
+                    )
+                })();
+                match result {
+                    Ok(json) => *this.botland.lock().unwrap() = Some(json),
+                    Err(e) => {
+                        eprintln!("botland compute failed: {e:#}");
+                        // Surface the failure to callers via an empty table.
+                        *this.botland.lock().unwrap() = Some(crate::botland::BotlandJson {
+                            rows: Vec::new(),
+                            matches: 0,
+                            tournaments: 0,
+                            v4_beats_inverse: None,
+                        });
+                    }
+                }
+                this.botland_computing.store(false, Ordering::SeqCst);
+            });
+        }
+        None
     }
 }
 

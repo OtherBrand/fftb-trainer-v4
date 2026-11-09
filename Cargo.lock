@@ -309,10 +309,38 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
+name = "fftb-botland"
+version = "0.1.0"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=2248e48#2248e48326feb569587228929b14ee3042b0fd59"
+dependencies = [
+ "anyhow",
+ "fftb-core",
+ "fftb-sim",
+ "quick-xml",
+ "rand 0.9.5",
+ "rand_chacha",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "fftb-core"
 version = "0.1.0"
-source = "git+file:///C:/Projects/fftb-trainer-botland?rev=020d177#020d177bb8bc8157813c1ea7500090410cc95dc6"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=2248e48#2248e48326feb569587228929b14ee3042b0fd59"
 dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "fftb-corpus"
+version = "0.1.0"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=2248e48#2248e48326feb569587228929b14ee3042b0fd59"
+dependencies = [
+ "fftb-core",
+ "flate2",
  "serde",
  "serde_json",
  "thiserror",
@@ -322,7 +350,7 @@ dependencies = [
 [[package]]
 name = "fftb-ga"
 version = "0.1.0"
-source = "git+file:///C:/Projects/fftb-trainer-botland?rev=020d177#020d177bb8bc8157813c1ea7500090410cc95dc6"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=2248e48#2248e48326feb569587228929b14ee3042b0fd59"
 dependencies = [
  "fftb-core",
  "fftb-sim",
@@ -335,7 +363,7 @@ dependencies = [
 [[package]]
 name = "fftb-sim"
 version = "0.1.0"
-source = "git+file:///C:/Projects/fftb-trainer-botland?rev=020d177#020d177bb8bc8157813c1ea7500090410cc95dc6"
+source = "git+file:///C:/Projects/fftb-trainer-botland?rev=2248e48#2248e48326feb569587228929b14ee3042b0fd59"
 dependencies = [
  "fftb-core",
 ]
@@ -346,8 +374,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "fftb-botland",
  "fftb-core",
+ "fftb-corpus",
  "fftb-ga",
+ "fftb-sim",
  "flate2",
  "genetic_algorithms",
  "radiate",
@@ -736,6 +767,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
