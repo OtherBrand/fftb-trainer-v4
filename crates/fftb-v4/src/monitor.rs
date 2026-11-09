@@ -47,6 +47,11 @@ pub struct RunStatus {
     pub genome_length: usize,
     /// Free system RAM right now (30s cache) — drives the estimator.
     pub available_bytes: u64,
+    /// Trainer process CPU, normalized to total machine capacity
+    /// (0-100 = idle..all cores saturated) — V1/V2 parity.
+    pub cpu_percent: f64,
+    /// Trainer process working set.
+    pub process_memory_bytes: u64,
     /// Meaningful events: run config, dataset summary, ★ new bests,
     /// milestones, completion. The dashboard's primary log.
     pub last_log_lines: Vec<String>,
@@ -68,6 +73,8 @@ impl Default for RunStatus {
             seed: 0,
             genome_length: 0,
             available_bytes: 0,
+            cpu_percent: 0.0,
+            process_memory_bytes: 0,
             last_log_lines: Vec::new(),
             last_gen_lines: Vec::new(),
         }
@@ -199,17 +206,81 @@ pub struct Monitor {
     /// Available-RAM cache (the probe spawns PowerShell; polled status
     /// should not). TTL 30s.
     memory_cache: Mutex<(std::time::Instant, u64)>,
+    /// Rolling process-CPU samples (wall instant, cumulative cpu seconds,
+    /// working set bytes) from a background refresher — V1/V2 parity: the
+    /// dashboard shows how hard the trainer is actually working, which
+    /// distinguishes a grinding dataset build from a hang.
+    cpu_samples: Arc<Mutex<VecDeque<(std::time::Instant, f64, u64)>>>,
+}
+
+/// Parse "cpu_seconds workingset_bytes" from the probe.
+fn parse_probe(text: &str) -> Option<(f64, u64)> {
+    let mut parts = text.split_whitespace();
+    let cpu: f64 = parts.next()?.parse().ok()?;
+    let ws: u64 = parts.next()?.parse().ok()?;
+    Some((cpu, ws))
+}
+
+/// Machine-normalized CPU % (0-100 across ALL cores) from the sample
+/// window. Pure function for testing.
+fn cpu_percent_from(
+    samples: &VecDeque<(std::time::Instant, f64, u64)>,
+    logical_cores: usize,
+) -> f64 {
+    if samples.len() < 2 {
+        return 0.0;
+    }
+    let (t0, c0, _) = samples.front().unwrap();
+    let (t1, c1, _) = samples.back().unwrap();
+    let wall = t1.duration_since(*t0).as_secs_f64();
+    if wall <= 0.0 || logical_cores == 0 {
+        return 0.0;
+    }
+    let delta_cpu = (c1 - c0).max(0.0);
+    (delta_cpu / wall / logical_cores as f64 * 100.0).clamp(0.0, 100.0)
 }
 
 impl Monitor {
     pub fn new(runs_dir: PathBuf, config: crate::config::V4Config) -> Self {
-        Self {
+        let monitor = Self {
             runs_dir,
             config,
             status: Mutex::new(StatusHandle::idle()),
             active: Mutex::new(None),
-            memory_cache: Mutex::new((std::time::Instant::now() - std::time::Duration::from_secs(3600), 0)),
-        }
+            memory_cache: Mutex::new((
+                std::time::Instant::now() - std::time::Duration::from_secs(3600),
+                0,
+            )),
+            cpu_samples: Arc::new(Mutex::new(VecDeque::new())),
+        };
+        // Background refresher: probe process CPU + working set every 5s so
+        // status polls never pay PowerShell's latency.
+        let samples = Arc::clone(&monitor.cpu_samples);
+        let pid = std::process::id();
+        std::thread::spawn(move || loop {
+            if let Ok(output) = std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    &format!(
+                        "$p = Get-Process -Id {pid}; \"$($p.TotalProcessorTime.TotalSeconds) $($p.WorkingSet64)\""
+                    ),
+                ])
+                .output()
+            {
+                if let Some((cpu, ws)) =
+                    parse_probe(&String::from_utf8_lossy(&output.stdout))
+                {
+                    let mut queue = samples.lock().unwrap();
+                    queue.push_back((std::time::Instant::now(), cpu, ws));
+                    while queue.len() > 12 {
+                        queue.pop_front();
+                    }
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        });
+        monitor
     }
 
     fn available_bytes_cached(&self) -> u64 {
@@ -230,6 +301,15 @@ impl Monitor {
             .unwrap()
             .as_ref()
             .is_some_and(|run| run.stop.load(Ordering::Relaxed));
+        let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+        snapshot.cpu_percent = cpu_percent_from(&self.cpu_samples.lock().unwrap(), cores);
+        snapshot.process_memory_bytes = self
+            .cpu_samples
+            .lock()
+            .unwrap()
+            .back()
+            .map(|(_, _, ws)| *ws)
+            .unwrap_or(0);
         snapshot
     }
 
@@ -623,6 +703,20 @@ mod tests {
             matches!(&refused, Err(ureq::Error::Status(403, _))),
             "expected 403 without token, got {refused:?}"
         );
+    }
+
+    #[test]
+    fn cpu_percent_math_normalizes_to_all_cores() {
+        let now = std::time::Instant::now();
+        let mut samples: VecDeque<(std::time::Instant, f64, u64)> = VecDeque::new();
+        // 8 cores, 10s window, 40 cpu-seconds consumed = 50% of the machine.
+        samples.push_back((now, 100.0, 0));
+        samples.push_back((now + std::time::Duration::from_secs(10), 140.0, 0));
+        assert!((cpu_percent_from(&samples, 8) - 50.0).abs() < 0.01);
+        // Degenerate windows are safe.
+        samples.clear();
+        samples.push_back((now, 100.0, 0));
+        assert_eq!(cpu_percent_from(&samples, 8), 0.0);
     }
 
     #[test]

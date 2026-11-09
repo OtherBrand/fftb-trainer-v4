@@ -81,6 +81,8 @@
       <div class="card"><div class="k">Elapsed</div><div class="v" id="elapsed">–</div></div>
       <div class="card"><div class="k">Population</div><div class="v" id="pop">–</div></div>
       <div class="card"><div class="k">Seed</div><div class="v" id="seed">–</div></div>
+      <div class="card"><div class="k">CPU <small>(all cores)</small></div><div class="v" id="cpu">–</div></div>
+      <div class="card"><div class="k">Process RAM</div><div class="v" id="pram">–</div></div>
     </div>
     <p class="section" style="margin-top:16px">Events</p>
     <pre id="log"></pre>
@@ -162,6 +164,8 @@
       $("elapsed").textContent = s.elapsed_ms ? fmtElapsed(s.elapsed_ms) : "–";
       $("pop").textContent = s.population || "–";
       $("seed").textContent = s.seed || "–";
+      $("cpu").textContent = s.cpu_percent != null ? s.cpu_percent.toFixed(1) + "%" : "–";
+      $("pram").textContent = s.process_memory_bytes ? fmtBytes(s.process_memory_bytes) : "–";
       if (s.available_bytes) {
         lastMemory.available = s.available_bytes;
         if (s.genome_length) lastMemory.genes = s.genome_length;
