@@ -19,3 +19,5 @@ pub mod train;
 /// Shared synthetic shape for the GA engine spike (examples/). Moves out
 /// when the engine is picked.
 pub mod spike;
+
+// build-hash nudge
